@@ -118,15 +118,45 @@ class DockerSandboxBackend(BaseSandbox):
         )
 ```
 
-### 2. `backend/agent_manager.py` - Agent管理器
+### 2. `backend/config.py` - 配置文件
+
+```python
+import os
+from dotenv import load_dotenv
+from langchain_openai import ChatOpenAI
+
+load_dotenv()
+
+# LLM配置（智谱AI GLM-4.7）
+llm = ChatOpenAI(
+    model="glm-4.7",
+    temperature=0,
+    openai_api_key=os.getenv("ZHIPUAI_API_KEY", ""),
+    openai_api_base=os.getenv("ZHIPUAI_API_BASE", "https://open.bigmodel.cn/api/paas/v4/"),
+    extra_body={
+        "response_format": {"type": "text"},
+        "thinking": {"type": "enabled"}
+    }
+)
+
+# Docker配置
+DOCKER_IMAGE = "python:3.13-slim"
+DOCKER_WORKSPACE_DIR = "/workspace"
+DOCKER_SHARED_DIR = "/shared"
+```
+
+### 3. `backend/agent_manager.py` - Agent管理器
 
 ```python
 class AgentManager:
     """管理单用户的多个线程"""
 
     def __init__(self):
+        from backend.config import llm
+
         self.checkpointer = MemoryCheckpointer()
         self.compiled_agent = create_deep_agent(
+            model=llm,
             backend=DockerSandboxBackend(),
             checkpointer=self.checkpointer,
             interrupt_on={"execute": True, "write_file": True}
@@ -149,7 +179,7 @@ class AgentManager:
             yield format_event(event)
 ```
 
-### 3. `api/server.py` - FastAPI服务
+### 4. `api/server.py` - FastAPI服务
 
 ```python
 app = FastAPI()
@@ -185,16 +215,17 @@ backend/
 ├── pyproject.toml             # 依赖配置
 ├── backend/
 │   ├── __init__.py
+│   ├── config.py              # LLM和Docker配置
 │   ├── docker_sandbox.py      # Docker沙箱后端
-│   ├── agent_manager.py       # Agent管理器
-│   └── config.py              # 配置
+│   └── agent_manager.py       # Agent管理器
 ├── api/
 │   ├── __init__.py
 │   ├── server.py              # FastAPI端点
 │   └── models.py              # Pydantic模型
 ├── workspaces/                # 按需创建的工作空间
 │   └── {thread_id}/
-└── shared/                    # 共享资源
+├── shared/                    # 共享资源
+└── .env.example               # 环境变量示例
 ```
 
 ---
@@ -216,9 +247,10 @@ dependencies = [
     "fastapi>=0.115.0",
     "uvicorn>=0.32.0",
     "pydantic>=2.10.0",
-    "langchain>=0.3.0",
-    "langchain-anthropic>=0.3.0",
-    "langgraph>=0.2.0",
+    "python-dotenv>=1.0.0",
+    "langchain>=1.0.0",
+    "langchain-openai>=0.2.0",
+    "langgraph>=1.0.0",
 ]
 
 [project.optional-dependencies]
@@ -232,8 +264,36 @@ dev = [
 ### 环境变量配置
 
 ```bash
-# .env (可选，用于配置LLM API)
-ANTHROPIC_API_KEY=sk-ant-xxx
+# .env.example (复制为 .env 并填入真实值)
+ZHIPUAI_API_KEY=your-zhipuai-api-key
+ZHIPUAI_API_BASE=https://open.bigmodel.cn/api/paas/v4/
+```
+
+### backend/config.py 实现
+
+```python
+import os
+from dotenv import load_dotenv
+from langchain_openai import ChatOpenAI
+
+load_dotenv()
+
+# LLM配置（智谱AI GLM-4.7）
+llm = ChatOpenAI(
+    model="glm-4.7",
+    temperature=0,
+    openai_api_key=os.getenv("ZHIPUAI_API_KEY", ""),
+    openai_api_base=os.getenv("ZHIPUAI_API_BASE", "https://open.bigmodel.cn/api/paas/v4/"),
+    extra_body={
+        "response_format": {"type": "text"},
+        "thinking": {"type": "enabled"}
+    }
+)
+
+# Docker配置
+DOCKER_IMAGE = "python:3.13-slim"
+DOCKER_WORKSPACE_DIR = "/workspace"
+DOCKER_SHARED_DIR = "/shared"
 ```
 
 ---
