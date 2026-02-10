@@ -65,18 +65,12 @@ class AgentManager:
 
         if event_type == "on_chat_model_stream":
             chunk = data.get("chunk", {})
-            content = chunk.get("content", "") if isinstance(chunk, dict) else ""
+            # Handle both dict and AIMessageChunk objects
+            if isinstance(chunk, dict):
+                content = chunk.get("content", "")
+            else:
+                # AIMessageChunk object
+                content = getattr(chunk, "content", "")
             if content:
                 return f"data: {content}\n\n"
-        elif event_type == "on_chain_end":
-            output = data.get("output", {})
-            messages = output.get("messages", []) if isinstance(output, dict) else []
-            if messages:
-                last_msg = messages[-1] if messages else {}
-                if isinstance(last_msg, dict):
-                    content = last_msg.get("content", "")
-                else:
-                    content = str(messages) if messages else ""
-                if content:
-                    return f"data: {content}\n\n"
         return ""
