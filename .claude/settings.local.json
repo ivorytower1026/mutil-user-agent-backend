@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find:*)",
+      "Bash(python:*)",
+      "Bash(timeout:*)",
+      "Bash(uv sync:*)",
+      "Bash(uv run:*)"
+    ]
+  }
+}

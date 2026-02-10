@@ -1,10 +1,17 @@
 [project]
 name = "backend"
 version = "0.1.0"
-description = "Add your description here"
+description = "Multi-tenant AI Agent Platform"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "deepagents>=0.3.12",
     "docker>=7.1.0",
+    "fastapi>=0.115.0",
+    "uvicorn>=0.32.0",
+    "pydantic>=2.10.0",
+    "python-dotenv>=1.0.0",
+    "langchain>=1.0.0",
+    "langchain-openai>=0.2.0",
+    "langgraph>=1.0.0",
 ]
