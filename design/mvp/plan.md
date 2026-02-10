@@ -89,14 +89,25 @@
 ### 1. `backend/docker_sandbox.py` - Docker沙箱后端
 
 ```python
+import os
+from deepagents.backends.sandbox import BaseSandbox
+from deepagents.backends.protocol import ExecuteResponse
+from backend.config import (
+    DOCKER_IMAGE,
+    WORKSPACE_ROOT,
+    SHARED_DIR,
+    CONTAINER_WORKSPACE_DIR,
+    CONTAINER_SHARED_DIR
+)
+
 class DockerSandboxBackend(BaseSandbox):
     """按需创建和销毁Docker容器"""
 
-    def __init__(self, image: str = "python:3.13-slim"):
-        self.image = image
+    def __init__(self, image: str = None):
+        self.image = image or DOCKER_IMAGE
         self.client = docker.from_env()
 
-    async def execute(self, command: str, workdir: str = "/workspace") -> ExecuteResponse:
+    async def execute(self, command: str, workdir: str = None) -> ExecuteResponse:
         """
         执行命令：
         1. 创建容器（挂载工作目录）
@@ -104,28 +115,68 @@ class DockerSandboxBackend(BaseSandbox):
         3. 返回结果
         4. 销毁容器
         """
-        pass
+        if workdir is None:
+            workdir = CONTAINER_WORKSPACE_DIR
 
-    def _create_container(self, thread_id: str):
-        """创建容器并挂载工作空间"""
+        container = None
+        try:
+            # 创建容器（从thread_id获取工作空间目录）
+            thread_id = self._get_thread_id_from_workdir(workdir)
+            workspace_dir = os.path.join(WORKSPACE_ROOT, thread_id)
+
+            container = self._create_container(
+                thread_id=thread_id,
+                workspace_dir=workspace_dir
+            )
+            container.start()
+
+            # 执行命令
+            exit_code, output = container.exec_run(
+                f"cd {workdir} && {command}",
+                workdir=workdir
+            )
+
+            return ExecuteResponse(
+                exit_code=exit_code,
+                stdout=output.decode('utf-8'),
+                stderr=""
+            )
+        finally:
+            if container:
+                container.remove(force=True)
+
+    def _create_container(self, thread_id: str, workspace_dir: str):
+        """创建容器并挂载工作空间和共享目录"""
         return self.client.containers.create(
             image=self.image,
             command="sleep infinity",
             volumes={
-                f"./workspaces/{thread_id}": {"bind": "/workspace", "mode": "rw"},
-                "./shared": {"bind": "/shared", "mode": "ro"}
+                workspace_dir: {"bind": CONTAINER_WORKSPACE_DIR, "mode": "rw"},
+                SHARED_DIR: {"bind": CONTAINER_SHARED_DIR, "mode": "ro"}
             }
         )
+
+    def _get_thread_id_from_workdir(self, workdir: str) -> str:
+        """从工作目录路径提取thread_id"""
+        # 假设workdir格式为 {CONTAINER_WORKSPACE_DIR} 或子路径
+        # 实际使用时需要从config传入thread_id
+        pass
 ```
 
 ### 2. `backend/config.py` - 配置文件
 
 ```python
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 
 load_dotenv()
+
+def _resolve_path(path_str: str) -> str:
+    """解析路径，支持相对路径和绝对路径，自动处理Windows/Linux差异"""
+    path = Path(path_str).expanduser().absolute()
+    return str(path)
 
 # LLM配置（智谱AI GLM-4.7）
 llm = ChatOpenAI(
@@ -139,10 +190,16 @@ llm = ChatOpenAI(
     }
 )
 
+# 工作空间根目录（从环境变量读取）
+WORKSPACE_ROOT = _resolve_path(os.getenv("WORKSPACE_ROOT", "./workspaces"))
+
+# 共享目录（从环境变量读取）
+SHARED_DIR = _resolve_path(os.getenv("SHARED_DIR", "./shared"))
+
 # Docker配置
-DOCKER_IMAGE = "python:3.13-slim"
-DOCKER_WORKSPACE_DIR = "/workspace"
-DOCKER_SHARED_DIR = "/shared"
+DOCKER_IMAGE = os.getenv("DOCKER_IMAGE", "python:3.13-slim")
+CONTAINER_WORKSPACE_DIR = os.getenv("CONTAINER_WORKSPACE_DIR", "/workspace")
+CONTAINER_SHARED_DIR = os.getenv("CONTAINER_SHARED_DIR", "/shared")
 ```
 
 ### 3. `backend/agent_manager.py` - Agent管理器
@@ -152,8 +209,9 @@ class AgentManager:
     """管理单用户的多个线程"""
 
     def __init__(self):
-        from backend.config import llm
+        from backend.config import llm, WORKSPACE_ROOT
 
+        self.workspace_root = WORKSPACE_ROOT
         self.checkpointer = MemoryCheckpointer()
         self.compiled_agent = create_deep_agent(
             model=llm,
@@ -165,7 +223,8 @@ class AgentManager:
     async def create_session(self) -> str:
         """创建新会话，返回thread_id"""
         thread_id = f"user-{uuid4()}"
-        os.makedirs(f"./workspaces/{thread_id}", exist_ok=True)
+        workspace_dir = os.path.join(self.workspace_root, thread_id)
+        os.makedirs(workspace_dir, exist_ok=True)
         return thread_id
 
     async def stream_chat(self, thread_id: str, message: str) -> AsyncIterator[str]:
@@ -213,6 +272,7 @@ async def resume_interrupt(thread_id: str, action: str):
 backend/
 ├── main.py                    # 服务入口
 ├── pyproject.toml             # 依赖配置
+├── .env                       # 环境变量（从.env.example复制）
 ├── backend/
 │   ├── __init__.py
 │   ├── config.py              # LLM和Docker配置
@@ -222,11 +282,56 @@ backend/
 │   ├── __init__.py
 │   ├── server.py              # FastAPI端点
 │   └── models.py              # Pydantic模型
-├── workspaces/                # 按需创建的工作空间
-│   └── {thread_id}/
-├── shared/                    # 共享资源
-└── .env.example               # 环境变量示例
+└── .env.example               # 环境变量示例模板
+
+# 以下目录由环境变量配置，不在项目目录下
+# ${WORKSPACE_ROOT}/          # 工作空间根目录
+#   └── {thread_id}/
+# ${SHARED_DIR}/              # 共享资源目录
 ```
+
+---
+
+## 环境变量配置
+
+### .env.example 配置
+
+```bash
+# 智谱AI配置
+ZHIPUAI_API_KEY=your-zhipuai-api-key-here
+ZHIPUAI_API_BASE=https://open.bigmodel.cn/api/paas/v4/
+
+# 工作空间根目录（支持相对路径和绝对路径）
+# Windows示例: C:\workspaces 或 ./workspaces
+# Linux示例:   /home/user/workspaces 或 ./workspaces
+WORKSPACE_ROOT=./workspaces
+
+# 共享目录（只读挂载）
+# Windows示例: C:\shared 或 ./shared
+# Linux示例:   /opt/shared 或 ./shared
+SHARED_DIR=./shared
+
+# Docker镜像
+DOCKER_IMAGE=python:3.13-slim
+
+# 容器内的工作目录
+CONTAINER_WORKSPACE_DIR=/workspace
+CONTAINER_SHARED_DIR=/shared
+```
+
+### 跨平台路径处理
+
+配置文件中的 `_resolve_path()` 函数会自动处理路径差异：
+
+```python
+def _resolve_path(path_str: str) -> str:
+    path = Path(path_str).expanduser().absolute()
+    return str(path)
+```
+
+- `expanduser()`: 展开用户目录（`~` → `/home/user` 或 `C:\Users\user`）
+- `absolute()`: 转换为绝对路径
+- `Path`: 自动处理Windows和Linux的路径分隔符
 
 ---
 
@@ -259,41 +364,6 @@ dev = [
     "pytest-asyncio>=0.24.0",
     "httpx>=0.28.0",
 ]
-```
-
-### 环境变量配置
-
-```bash
-# .env.example (复制为 .env 并填入真实值)
-ZHIPUAI_API_KEY=your-zhipuai-api-key
-ZHIPUAI_API_BASE=https://open.bigmodel.cn/api/paas/v4/
-```
-
-### backend/config.py 实现
-
-```python
-import os
-from dotenv import load_dotenv
-from langchain_openai import ChatOpenAI
-
-load_dotenv()
-
-# LLM配置（智谱AI GLM-4.7）
-llm = ChatOpenAI(
-    model="glm-4.7",
-    temperature=0,
-    openai_api_key=os.getenv("ZHIPUAI_API_KEY", ""),
-    openai_api_base=os.getenv("ZHIPUAI_API_BASE", "https://open.bigmodel.cn/api/paas/v4/"),
-    extra_body={
-        "response_format": {"type": "text"},
-        "thinking": {"type": "enabled"}
-    }
-)
-
-# Docker配置
-DOCKER_IMAGE = "python:3.13-slim"
-DOCKER_WORKSPACE_DIR = "/workspace"
-DOCKER_SHARED_DIR = "/shared"
 ```
 
 ---
@@ -337,8 +407,14 @@ print(f"   恢复结果: {resume.json()}")
 # 4. 验证文件创建
 print("4. 验证文件创建...")
 import os
-file_path = f"./workspaces/{thread_id}/hello.py"
-if os.path.exists(file_path):
+from pathlib import Path
+
+# 从环境变量读取工作空间根目录（或使用默认值）
+workspace_root = os.getenv("WORKSPACE_ROOT", "./workspaces")
+workspace_root = Path(workspace_root).expanduser().absolute()
+file_path = workspace_root / thread_id / "hello.py"
+
+if file_path.exists():
     print(f"   文件已创建: {file_path}")
     with open(file_path) as f:
         print(f"   内容:\n{f.read()}")
