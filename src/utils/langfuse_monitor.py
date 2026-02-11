@@ -6,7 +6,7 @@ from langfuse.langchain import CallbackHandler
 
 from functools import lru_cache
 
-from src.config import LANGFUSE_PUBLIC_KEY ,LANGFUSE_SECRET_KEY, LANGFUSE_BASE_URL
+from src.config import settings
 
 
 @lru_cache(maxsize=1)
@@ -28,9 +28,9 @@ def _init_langfuse_singleton(
 
 
 def init_langfuse(
-    public_key: str = LANGFUSE_PUBLIC_KEY,
-    secret_key: str = LANGFUSE_SECRET_KEY,
-    host: str = LANGFUSE_BASE_URL,
+    public_key: str = settings.LANGFUSE_PUBLIC_KEY,
+    secret_key: str = settings.LANGFUSE_SECRET_KEY,
+    host: str = settings.LANGFUSE_BASE_URL,
     auto_flush: bool = True,
     flush_at: int = 1,
     flush_interval: float = 1,

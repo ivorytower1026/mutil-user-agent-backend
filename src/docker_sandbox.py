@@ -9,7 +9,7 @@ from deepagents.backends.protocol import (
     FileDownloadResponse
 )
 from src.config import (
-    DOCKER_IMAGE,
+    settings,
     WORKSPACE_ROOT,
     SHARED_DIR,
     CONTAINER_WORKSPACE_DIR,
@@ -32,7 +32,7 @@ class DockerSandboxBackend(BaseSandbox):
     def __init__(self, thread_id: str, workspace_dir: str):
         self.thread_id = thread_id
         self.workspace_dir = workspace_dir
-        self.image = DOCKER_IMAGE
+        self.image = settings.DOCKER_IMAGE
         self.client = docker.from_env()
 
     @property
