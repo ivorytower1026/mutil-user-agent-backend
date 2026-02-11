@@ -23,8 +23,19 @@ def test_mvp():
     print("MVP测试脚本")
     print("=" * 50)
 
-    # 0. 登录获取token
-    print("\n0. 登录获取token...")
+    # 0. 注册或登录获取token
+    print("\n0. 注册或登录获取token...")
+    register_response = requests.post(
+        f"{BASE_URL}/auth/register",
+        json={"username": TEST_USER_ID, "password": TEST_PASSWORD}
+    )
+    if register_response.status_code == 200:
+        print(f"   [Register] User registered: {TEST_USER_ID}")
+    elif register_response.status_code == 400 and "already registered" in register_response.text.lower():
+        print(f"   [Info] User already exists, trying login...")
+    else:
+        print(f"   [Error] Register failed: {register_response.text}")
+
     login_response = requests.post(
         f"{BASE_URL}/auth/login",
         json={"username": TEST_USER_ID, "password": TEST_PASSWORD}

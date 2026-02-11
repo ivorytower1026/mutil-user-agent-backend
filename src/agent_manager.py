@@ -61,7 +61,7 @@ class AgentManager:
 
     async def stream_chat(self, thread_id: str, message: str) -> AsyncIterator[str]:
         handler, _ = init_langfuse()
-        config: RunnableConfig = {"configurable": {"thread_id": thread_id},"callbacks":[handler]}
+        config: RunnableConfig = {"configurable": {"thread_id": thread_id}, "callbacks": [handler]}
 
         try:
             async for event in self.compiled_agent.astream_events(
@@ -73,11 +73,14 @@ class AgentManager:
                 if formatted:
                     yield formatted
         except Exception as e:
-            yield self._make_sse("error", {"message": str(e)})
-            raise
-
-        # Send done event at the end
-        yield self._make_sse("done", {})
+            import traceback
+            error_msg = f"{type(e).__name__}: {str(e)}"
+            print(f"[ERROR] In stream_chat: {error_msg}")
+            traceback.print_exc()
+            yield self._make_sse("error", {"message": error_msg})
+        finally:
+            # Send done event at the end
+            yield self._make_sse("done", {})
 
     async def stream_resume_interrupt(self, thread_id: str, action: str) -> AsyncIterator[str]:
         if action not in ["continue", "cancel"]:
@@ -91,48 +94,67 @@ class AgentManager:
         else:
             resume_command = Command(resume={"decisions": [{"type": "approve"}]})
 
-        async for chunk in self.compiled_agent.astream(
-            resume_command,
-            config=config,
-            stream_mode=["messages", "updates"],
-            subgraphs=True,
-        ):
-            formatted = self._format_astream_chunk(chunk)
-            if formatted:
-                yield formatted
+        try:
+            async for chunk in self.compiled_agent.astream(
+                resume_command,
+                config=config,
+                stream_mode=["messages", "updates"],
+                subgraphs=True,
+            ):
+                formatted = self._format_astream_chunk(chunk)
+                if formatted:
+                    yield formatted
+        except Exception as e:
+            import traceback
+            error_msg = f"{type(e).__name__}: {str(e)}"
+            print(f"[ERROR] In stream_resume_interrupt: {error_msg}")
+            traceback.print_exc()
+            yield self._make_sse("error", {"message": error_msg})
+            return
+        finally:
+            # Send done event at the end
+            yield self._make_sse("done", {"action": action})
 
-        yield self._make_sse("done", {"action": action})
-
-    def _format_astream_chunk(self, chunk: dict[str, Any] | Any) -> str | None:
-        if not isinstance(chunk, dict):
+    def _format_astream_chunk(self, chunk: Any) -> str | None:
+        print(f"[DEBUG] _format_astream_chunk: type={type(chunk)}, len={len(chunk) if hasattr(chunk, '__len__') else 'N/A'}")
+        if hasattr(chunk, '__len__'):
+            print(f"[DEBUG] chunk={chunk}")
+        
+        if not isinstance(chunk, tuple):
             return None
 
-        # 提取模式和内容
-        mode = chunk.get("mode")
-        data = chunk.get("chunk")
+        # astream 返回格式可能是 (mode, data) 的 tuple
+        if len(chunk) == 2:
+            mode = chunk[0]
+            data = chunk[1]
+            
+            print(f"[DEBUG] mode={mode}, data_type={type(data)}")
+            
+            if mode == "messages":
+                # 处理消息流 - data 可能是 LLM token 或 metadata
+                if isinstance(data, tuple) and len(data) == 2:
+                    token, metadata = data
+                    if token:
+                        return self._make_sse("content", {"content": token})
+                elif isinstance(data, str):
+                    return self._make_sse("content", {"content": data})
 
-        if mode == "messages":
-            # 处理消息流
-            content = self._extract_content(data)
-            if content:
-                return self._make_sse("content", {"content": content})
+            elif mode == "updates":
+                # 处理状态更新
+                if isinstance(data, dict):
+                    if "__interrupt__" in data:
+                        # 中断信息
+                        interrupt_info = data["__interrupt__"]
+                        if interrupt_info:
+                            return self._make_sse("interrupt", {
+                                "info": str(interrupt_info)
+                            })
 
-        elif mode == "updates":
-            # 处理状态更新
-            if isinstance(data, dict):
-                if "__interrupt__" in data:
-                    # 中断信息
-                    interrupt_info = data["__interrupt__"]
-                    if interrupt_info:
-                        return self._make_sse("interrupt", {
-                            "info": str(interrupt_info)
-                        })
-
-                # 其他状态更新（节点状态等）
-                filtered_data = {k: v for k, v in data.items() 
-                               if k not in ["messages", "__interrupt__"] and v is not None and v != ""}
-                if filtered_data:
-                    return self._make_sse("update", {"data": self._sanitize_for_json(filtered_data)})
+                    # 其他状态更新（节点状态等）
+                    filtered_data = {k: v for k, v in data.items() 
+                                   if k not in ["messages", "__interrupt__"] and v is not None and v != ""}
+                    if filtered_data:
+                        return self._make_sse("update", {"data": self._sanitize_for_json(filtered_data)})
 
         return None
 
