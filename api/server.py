@@ -48,33 +48,30 @@ async def chat(
     )
 
 
-@router.post("/resume/{thread_id}", response_model=ResumeResponse)
-async def resume_interrupt(
+@router.post("/resume/{thread_id}")
+async def stream_resume_interrupt(
     thread_id: str,
     request: ResumeRequest,
     user_id: str = Depends(get_current_user)
 ):
-    """Resume an interrupted session (HITL).
-    
+    """Resume an interrupted session (HITL) with streaming.
+
     Requires authentication. User can only resume their own threads.
     """
     # Verify thread ownership
     verify_thread_permission(user_id, thread_id)
-    
+
     if request.action not in ["continue", "cancel"]:
         raise HTTPException(
             status_code=400,
             detail="Action must be 'continue' or 'cancel'"
         )
 
-    try:
-        result = await agent_manager.resume_interrupt(thread_id, request.action)
-        return ResumeResponse(
-            success=result["success"],
-            message=result["message"]
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to resume: {str(e)}"
-        )
+    async def event_generator() -> AsyncGenerator[str, None]:
+        async for chunk in agent_manager.stream_resume_interrupt(thread_id, request.action):
+            yield chunk
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream"
+    )

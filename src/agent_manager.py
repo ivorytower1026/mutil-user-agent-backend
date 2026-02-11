@@ -6,6 +6,7 @@ from typing import Any, AsyncIterator
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.postgres import PostgresSaver
+from psycopg_pool import ConnectionPool
 from deepagents import create_deep_agent
 from langgraph.types import Command
 
@@ -17,7 +18,16 @@ from src.utils.langfuse_monitor import init_langfuse
 class AgentManager:
     def __init__(self):
         # Use PostgresSaver for persistence instead of MemorySaver
-        self.checkpointer = PostgresSaver.from_conn_string(settings.DATABASE_URL)
+        # Create a connection pool
+        connection_kwargs = {"autocommit": True, "prepare_threshold": 0}
+        pool = ConnectionPool(
+            conninfo=settings.DATABASE_URL,
+            max_size=20,
+            kwargs=connection_kwargs,
+        )
+        pool.open()
+        
+        self.checkpointer = PostgresSaver(pool)
         self.checkpointer.setup()  # Create checkpoint tables
         
         self.compiled_agent = create_deep_agent(
@@ -69,27 +79,62 @@ class AgentManager:
         # Send done event at the end
         yield self._make_sse("done", {})
 
-    async def resume_interrupt(self, thread_id: str, action: str):
+    async def stream_resume_interrupt(self, thread_id: str, action: str) -> AsyncIterator[str]:
         if action not in ["continue", "cancel"]:
             raise ValueError("Action must be 'continue' or 'cancel'")
 
         handler, _ = init_langfuse()
-        config: RunnableConfig = {"configurable": {"thread_id": thread_id},"callbacks":[handler]}
+        config: RunnableConfig = {"configurable": {"thread_id": thread_id}, "callbacks": [handler]}
 
         if action == "cancel":
-            # 对于 cancel，需要传递拒绝决策
-            result = await self.compiled_agent.ainvoke(
-                Command(resume={"decisions": [{"type": "reject"}]}),
-                config=config
-            )
-            return {"success": True, "message": "Operation cancelled"}
+            resume_command = Command(resume={"decisions": [{"type": "reject"}]})
+        else:
+            resume_command = Command(resume={"decisions": [{"type": "approve"}]})
 
-        # 对于 continue，传递批准决策
-        result = await self.compiled_agent.ainvoke(
-            Command(resume={"decisions": [{"type": "approve"}]}),
-            config=config
-        )
-        return {"success": True, "message": "Resumed successfully", "lasted_messages": result['messages'][-1].content}
+        async for chunk in self.compiled_agent.astream(
+            resume_command,
+            config=config,
+            stream_mode=["messages", "updates"],
+            subgraphs=True,
+        ):
+            formatted = self._format_astream_chunk(chunk)
+            if formatted:
+                yield formatted
+
+        yield self._make_sse("done", {"action": action})
+
+    def _format_astream_chunk(self, chunk: dict[str, Any] | Any) -> str | None:
+        if not isinstance(chunk, dict):
+            return None
+
+        # 提取模式和内容
+        mode = chunk.get("mode")
+        data = chunk.get("chunk")
+
+        if mode == "messages":
+            # 处理消息流
+            content = self._extract_content(data)
+            if content:
+                return self._make_sse("content", {"content": content})
+
+        elif mode == "updates":
+            # 处理状态更新
+            if isinstance(data, dict):
+                if "__interrupt__" in data:
+                    # 中断信息
+                    interrupt_info = data["__interrupt__"]
+                    if interrupt_info:
+                        return self._make_sse("interrupt", {
+                            "info": str(interrupt_info)
+                        })
+
+                # 其他状态更新（节点状态等）
+                filtered_data = {k: v for k, v in data.items() 
+                               if k not in ["messages", "__interrupt__"] and v is not None and v != ""}
+                if filtered_data:
+                    return self._make_sse("update", {"data": self._sanitize_for_json(filtered_data)})
+
+        return None
 
     def _format_event(self, event: Any) -> str | None:
         event_type = event.get("event", "")

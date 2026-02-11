@@ -9,8 +9,13 @@ import requests
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.config import settings
+import requests.auth
 
 BASE_URL = "http://localhost:8002/api"
+
+# 简单认证 - 使用固定的用户ID和密码
+TEST_USER_ID = "test-user"
+TEST_PASSWORD = "test-password-123"
 
 
 def test_mvp():
@@ -18,9 +23,25 @@ def test_mvp():
     print("MVP测试脚本")
     print("=" * 50)
 
+    # 0. 登录获取token
+    print("\n0. 登录获取token...")
+    login_response = requests.post(
+        f"{BASE_URL}/auth/login",
+        json={"username": TEST_USER_ID, "password": TEST_PASSWORD}
+    )
+    if login_response.status_code != 200:
+        print(f"   [Error] Login failed: {login_response.text}")
+        return
+    token = login_response.json().get("access_token")
+    print(f"   Access token: {token[:20]}...")
+
     # 1. 创建会话
     print("\n1. 创建会话...")
-    response = requests.post(f"{BASE_URL}/sessions")
+    headers = {"Authorization": f"Bearer {token}"}
+    response = requests.post(f"{BASE_URL}/sessions", headers=headers)
+    if response.status_code == 401:
+        print(f"   [Error] Authentication failed: {response.text}")
+        return
     session = response.json()
     thread_id = session["thread_id"]
     print(f"   Thread ID: {thread_id}")
@@ -30,6 +51,7 @@ def test_mvp():
     response = requests.post(
         f"{BASE_URL}/chat/{thread_id}",
         json={"message": "创建一个hello.py文件，内容为：print('Hello World')"},
+        headers=headers,
         stream=True
     )
 
@@ -79,14 +101,55 @@ def test_mvp():
     print(f"   Tool calls: {len(tool_calls)}")
 
 
-
-    # 3. 测试resume功能（如果HITL触发）
-    print("\n3. 测试resume功能...")
+    
+    # 3. 测试resume功能（如果HITL触发）- 流式输出
+    print("\n3. 测试流式resume功能...")
     response = requests.post(
         f"{BASE_URL}/resume/{thread_id}",
-        json={"action": "continue"}
+        json={"action": "continue"},
+        headers=headers,
+        stream=True
     )
-    print(f"   响应: {response.json()}")
+    
+    print("   响应流:")
+    resume_event_count = Counter()
+    for line in response.iter_lines():
+        if line:
+            line_str = line.decode().strip()
+            if line_str.startswith("data: "):
+                json_str = line_str[6:]
+                try:
+                    event = json.loads(json_str)
+                    event_type = event.get("type", "unknown")
+                    resume_event_count[event_type] += 1
+                    
+                    if event_type == "content":
+                        content = event.get("content", "")
+                        if len(content) < 100:
+                            print(f"   [{event_type}] {content}")
+                        else:
+                            print(f"   [{event_type}] {content[:100]}...")
+                    elif event_type == "tool_start":
+                        tool = event.get("tool", "unknown")
+                        print(f"   [{event_type}] {tool}")
+                    elif event_type == "tool_end":
+                        tool = event.get("tool", "unknown")
+                        print(f"   [{event_type}] {tool}")
+                    elif event_type == "interrupt":
+                        info = event.get("info", "")
+                        print(f"   [{event_type}] {info}")
+                    elif event_type == "update":
+                        print(f"   [{event_type}] {event.get('data', {})}")
+                    elif event_type == "done":
+                        action = event.get("action", "")
+                        print(f"   >>> Resume completed ({action})")
+                        break
+                except json.JSONDecodeError:
+                    pass
+    
+    print(f"\n   Resume 事件统计:")
+    for etype, count in resume_event_count.most_common():
+        print(f"      {etype}: {count}")
 
     # 4. 检查工作空间
     print("\n4. 检查工作空间...")
