@@ -22,6 +22,10 @@ llm = ChatOpenAI(
     }
 )
 
+LANGFUSE_PUBLIC_KEY = os.getenv("LANGFUSE_PUBLIC_KEY", "")
+LANGFUSE_SECRET_KEY = os.getenv("LANGFUSE_SECRET_KEY", "")
+LANGFUSE_BASE_URL = os.getenv("LANGFUSE_BASE_URL", "")
+
 WORKSPACE_ROOT = _resolve_path(os.getenv("WORKSPACE_ROOT", "./workspaces"))
 
 SHARED_DIR = _resolve_path(os.getenv("SHARED_DIR", "./shared"))

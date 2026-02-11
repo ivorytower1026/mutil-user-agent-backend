@@ -31,8 +31,18 @@ def test_mvp():
         if line:
             print(f"   {line.decode()}")
 
-    # 3. 检查工作空间
-    print("\n3. 检查工作空间...")
+
+
+    # 3. 测试resume功能（如果HITL触发）
+    print("\n3. 测试resume功能...")
+    response = requests.post(
+        f"{BASE_URL}/resume/{thread_id}",
+        json={"action": "continue"}
+    )
+    print(f"   响应: {response.json()}")
+
+    # 4. 检查工作空间
+    print("\n4. 检查工作空间...")
     workspace_root = os.getenv("WORKSPACE_ROOT", "./workspaces")
     workspace_root = Path(workspace_root).expanduser().absolute()
     file_path = workspace_root / thread_id / "hello.py"
@@ -44,14 +54,6 @@ def test_mvp():
             print(f"   Content:\n{content}")
     else:
         print(f"   [X] File not found: {file_path}")
-
-    # 4. 测试resume功能（如果HITL触发）
-    print("\n4. 测试resume功能...")
-    response = requests.post(
-        f"{BASE_URL}/resume/{thread_id}",
-        json={"action": "continue"}
-    )
-    print(f"   响应: {response.json()}")
 
     print("\n" + "=" * 50)
     print("测试完成")

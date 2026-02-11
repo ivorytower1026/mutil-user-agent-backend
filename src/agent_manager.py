@@ -1,3 +1,4 @@
+import json
 import os
 import uuid
 from typing import Any, AsyncIterator
@@ -6,9 +7,11 @@ from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import MemorySaver
 from deepagents import create_deep_agent
+from langgraph.types import Command
 
 from src.config import llm
 from src.docker_sandbox import get_thread_backend
+from src.utils.langfuse_monitor import init_langfuse
 
 
 class AgentManager:
@@ -35,29 +38,38 @@ class AgentManager:
         return thread_id
 
     async def stream_chat(self, thread_id: str, message: str) -> AsyncIterator[str]:
-        config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
+        handler, _ = init_langfuse()
+        config: RunnableConfig = {"configurable": {"thread_id": thread_id},"callbacks":[handler]}
 
         async for event in self.compiled_agent.astream_events(
             {"messages": [HumanMessage(content=message)]},
             config=config,
-            version="v1"
+            version="v2"
         ):
+            print(event)
             yield self._format_event(event)
 
     async def resume_interrupt(self, thread_id: str, action: str):
         if action not in ["continue", "cancel"]:
             raise ValueError("Action must be 'continue' or 'cancel'")
 
-        config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
+        handler, _ = init_langfuse()
+        config: RunnableConfig = {"configurable": {"thread_id": thread_id},"callbacks":[handler]}
 
         if action == "cancel":
+            # 对于 cancel，需要传递拒绝决策
+            result = await self.compiled_agent.ainvoke(
+                Command(resume={"decisions": [{"type": "reject"}]}),
+                config=config
+            )
             return {"success": True, "message": "Operation cancelled"}
 
+            # 对于 continue，传递批准决策
         result = await self.compiled_agent.ainvoke(
-            {"messages": []},
+            Command(resume={"decisions": [{"type": "approve"}]}),
             config=config
         )
-        return {"success": True, "message": "Resumed successfully", "result": result}
+        return {"success": True, "message": "Resumed successfully", "messages": json.dump(result['messages'])}
 
     def _format_event(self, event: Any) -> str:
         event_type = event.get("event", "")
