@@ -14,9 +14,19 @@ _thread_backends = {}
 
 
 def get_thread_backend(thread_id: str) -> 'DockerSandboxBackend':
+    """Get or create a thread backend.
+    
+    Workspace directory structure: workspaces/{user_id}/{thread_id}/
+    where thread_id format is {user_id}-{uuid}
+    """
     if thread_id not in _thread_backends:
+        # Extract user_id from thread_id (format: {user_id}-{uuid})
+        user_id = thread_id.split('-')[0]
+        
+        # Create workspace directory: workspaces/{user_id}/{thread_id}
         workspace_dir = os.path.join(
             Path(settings.WORKSPACE_ROOT).expanduser().absolute(),
+            user_id,
             thread_id
         )
         os.makedirs(workspace_dir, exist_ok=True)

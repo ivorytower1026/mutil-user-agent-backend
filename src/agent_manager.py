@@ -5,18 +5,21 @@ from typing import Any, AsyncIterator
 
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
-from langgraph.checkpoint.memory import MemorySaver
+from langgraph.checkpoint.postgres import PostgresSaver
 from deepagents import create_deep_agent
 from langgraph.types import Command
 
-from src.config import llm
+from src.config import llm, settings
 from src.docker_sandbox import get_thread_backend
 from src.utils.langfuse_monitor import init_langfuse
 
 
 class AgentManager:
     def __init__(self):
-        self.checkpointer = MemorySaver()
+        # Use PostgresSaver for persistence instead of MemorySaver
+        self.checkpointer = PostgresSaver.from_conn_string(settings.DATABASE_URL)
+        self.checkpointer.setup()  # Create checkpoint tables
+        
         self.compiled_agent = create_deep_agent(
             model=llm,
             backend=lambda runtime: get_thread_backend(self._get_thread_id(runtime) or "default"),
@@ -24,7 +27,7 @@ class AgentManager:
             interrupt_on={"execute": True, "write_file": True},
             system_prompt="用户的工作目录在/workspace中，若无明确要求，请在/workspace目录【及子目录】下执行操作"
         )
-        print(f"[AgentManager] Initialized")
+        print(f"[AgentManager] Initialized with PostgresSaver")
 
     def _get_thread_id(self, runtime: Any) -> str | None:
         config = getattr(runtime, "config", None)
@@ -33,8 +36,16 @@ class AgentManager:
             return configurable.get("thread_id")
         return None
 
-    async def create_session(self) -> str:
-        thread_id = f"user-{uuid.uuid4()}"
+    async def create_session(self, user_id: str) -> str:
+        """Create a new session for a user.
+        
+        Args:
+            user_id: The user ID
+            
+        Returns:
+            thread_id: Format is {user_id}-{uuid}
+        """
+        thread_id = f"{user_id}-{uuid.uuid4()}"
         get_thread_backend(thread_id)
         return thread_id
 

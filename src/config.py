@@ -28,6 +28,13 @@ class Settings(BaseSettings):
     CONTAINER_WORKSPACE_DIR: str
     CONTAINER_SHARED_DIR: str
 
+    # 数据库配置
+    DATABASE_URL: str = "postgresql://agent_user:agent_password@localhost/agent_db"
+
+    # JWT配置
+    SECRET_KEY: str = "your-secret-key-change-in-production"
+    ACCESS_TOKEN_EXPIRE_HOURS: int = 24
+
     @field_validator("IS_LANGFUSE", mode="before")
     def parse_is_langfuse(cls, v):
         return int(v)
