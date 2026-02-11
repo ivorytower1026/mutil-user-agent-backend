@@ -21,7 +21,8 @@ class AgentManager:
             model=llm,
             backend=lambda runtime: get_thread_backend(self._get_thread_id(runtime) or "default"),
             checkpointer=self.checkpointer,
-            interrupt_on={"execute": True, "write_file": True}
+            interrupt_on={"execute": True, "write_file": True},
+            system_prompt="用户的工作目录在/workspace中，若无明确要求，请在/workspace目录【及子目录】下执行操作"
         )
         print(f"[AgentManager] Initialized")
 
@@ -64,12 +65,12 @@ class AgentManager:
             )
             return {"success": True, "message": "Operation cancelled"}
 
-            # 对于 continue，传递批准决策
+        # 对于 continue，传递批准决策
         result = await self.compiled_agent.ainvoke(
             Command(resume={"decisions": [{"type": "approve"}]}),
             config=config
         )
-        return {"success": True, "message": "Resumed successfully", "messages": json.dump(result['messages'])}
+        return {"success": True, "message": "Resumed successfully", "lasted_messages": result['messages'][-1].content}
 
     def _format_event(self, event: Any) -> str:
         event_type = event.get("event", "")

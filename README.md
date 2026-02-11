@@ -165,3 +165,8 @@ uv run python tests/test_mvp.py
 - [变更日志](./design/mvp/CHANGELOG.md)
 - [deepagents文档](https://github.com/langchain-ai/deepagents)
 - [LangGraph文档](https://langchain-ai.github.io/langgraph/)
+
+
+问题记录：
+1、每启动一个docker容器很耗时间
+2、中断程序后，docker容器未退出

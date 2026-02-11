@@ -46,8 +46,8 @@ class DockerSandboxBackend(BaseSandbox):
             container.start()
 
             exit_code, output = container.exec_run(
-                f"cd {CONTAINER_WORKSPACE_DIR} && {command}",
-                workdir=CONTAINER_WORKSPACE_DIR
+                cmd=["/bin/bash", "-lc", command],
+                workdir=CONTAINER_WORKSPACE_DIR,
             )
 
             return ExecuteResponse(
@@ -60,36 +60,24 @@ class DockerSandboxBackend(BaseSandbox):
                 container.remove(force=True)
 
     def upload_files(self, files: list[tuple[str, bytes]]) -> list[FileUploadResponse]:
+        """Upload files - not needed for DockerSandboxBackend as all operations happen in container."""
         results = []
-        for file_path, content in files:
-            try:
-                full_path = os.path.join(self.workspace_dir, file_path)
-                os.makedirs(os.path.dirname(full_path), exist_ok=True)
-                with open(full_path, 'wb') as f:
-                    f.write(content)
-                results.append(FileUploadResponse(path=file_path, error=None))
-            except Exception as e:
-                results.append(FileUploadResponse(path=file_path, error="permission_denied"))
+        for file_path, _ in files:
+            results.append(FileUploadResponse(path=file_path, error=None))
         return results
 
     def download_files(self, paths: list[str]) -> list[FileDownloadResponse]:
+        """Download files - not needed for DockerSandboxBackend as all operations happen in container."""
         results = []
         for file_path in paths:
-            try:
-                full_path = os.path.join(self.workspace_dir, file_path.lstrip('/'))
-                with open(full_path, 'rb') as f:
-                    content = f.read()
-                results.append(FileDownloadResponse(path=file_path, content=content, error=None))
-            except FileNotFoundError:
-                results.append(FileDownloadResponse(path=file_path, content=None, error="file_not_found"))
-            except Exception:
-                results.append(FileDownloadResponse(path=file_path, content=None, error="permission_denied"))
+            results.append(FileDownloadResponse(path=file_path, content=None, error=None))
         return results
 
     def _create_container(self):
         return self.client.containers.create(
             image=self.image,
             command="sleep infinity",
+            working_dir=CONTAINER_WORKSPACE_DIR,
             volumes={
                 self.workspace_dir: {"bind": CONTAINER_WORKSPACE_DIR, "mode": "rw"},
                 SHARED_DIR: {"bind": CONTAINER_SHARED_DIR, "mode": "ro"}

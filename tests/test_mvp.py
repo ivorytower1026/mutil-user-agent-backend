@@ -43,7 +43,7 @@ def test_mvp():
 
     # 4. 检查工作空间
     print("\n4. 检查工作空间...")
-    workspace_root = os.getenv("WORKSPACE_ROOT", "./workspaces")
+    workspace_root = os.getenv("WORKSPACE_ROOT", "/workspace")
     workspace_root = Path(workspace_root).expanduser().absolute()
     file_path = workspace_root / thread_id / "hello.py"
 
