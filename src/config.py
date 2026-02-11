@@ -53,13 +53,3 @@ llm = ChatOpenAI(
         "thinking": {"type": "enabled"}
     }
 )
-
-# Export convenience functions for backward compatibility
-LANGFUSE_PUBLIC_KEY = settings.LANGFUSE_PUBLIC_KEY
-LANGFUSE_SECRET_KEY = settings.LANGFUSE_SECRET_KEY
-LANGFUSE_BASE_URL = settings.LANGFUSE_BASE_URL
-WORKSPACE_ROOT = _resolve_path(settings.WORKSPACE_ROOT)
-SHARED_DIR = _resolve_path(settings.SHARED_DIR)
-DOCKER_IMAGE = settings.DOCKER_IMAGE
-CONTAINER_WORKSPACE_DIR = settings.CONTAINER_WORKSPACE_DIR
-CONTAINER_SHARED_DIR = settings.CONTAINER_SHARED_DIR

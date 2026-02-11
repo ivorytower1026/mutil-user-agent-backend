@@ -1,20 +1,13 @@
 import os
-import base64
 import docker
-import json
+from pathlib import Path
 from deepagents.backends.sandbox import BaseSandbox
 from deepagents.backends.protocol import (
     ExecuteResponse,
     FileUploadResponse,
     FileDownloadResponse
 )
-from src.config import (
-    settings,
-    WORKSPACE_ROOT,
-    SHARED_DIR,
-    CONTAINER_WORKSPACE_DIR,
-    CONTAINER_SHARED_DIR
-)
+from src.config import settings
 
 
 _thread_backends = {}
@@ -22,7 +15,10 @@ _thread_backends = {}
 
 def get_thread_backend(thread_id: str) -> 'DockerSandboxBackend':
     if thread_id not in _thread_backends:
-        workspace_dir = os.path.join(WORKSPACE_ROOT, thread_id)
+        workspace_dir = os.path.join(
+            Path(settings.WORKSPACE_ROOT).expanduser().absolute(),
+            thread_id
+        )
         os.makedirs(workspace_dir, exist_ok=True)
         _thread_backends[thread_id] = DockerSandboxBackend(thread_id, workspace_dir)
     return _thread_backends[thread_id]
@@ -47,7 +43,7 @@ class DockerSandboxBackend(BaseSandbox):
 
             exit_code, output = container.exec_run(
                 cmd=["/bin/bash", "-lc", command],
-                workdir=CONTAINER_WORKSPACE_DIR,
+                workdir=settings.CONTAINER_WORKSPACE_DIR,
             )
 
             return ExecuteResponse(
@@ -77,9 +73,9 @@ class DockerSandboxBackend(BaseSandbox):
         return self.client.containers.create(
             image=self.image,
             command="sleep infinity",
-            working_dir=CONTAINER_WORKSPACE_DIR,
+            working_dir=settings.CONTAINER_WORKSPACE_DIR,
             volumes={
-                self.workspace_dir: {"bind": CONTAINER_WORKSPACE_DIR, "mode": "rw"},
-                SHARED_DIR: {"bind": CONTAINER_SHARED_DIR, "mode": "ro"}
+                self.workspace_dir: {"bind": settings.CONTAINER_WORKSPACE_DIR, "mode": "rw"},
+                str(Path(settings.SHARED_DIR).expanduser().absolute()): {"bind": settings.CONTAINER_SHARED_DIR, "mode": "ro"}
             }
         )
