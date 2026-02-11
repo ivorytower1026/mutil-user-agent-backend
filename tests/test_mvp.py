@@ -1,7 +1,8 @@
-import os
-import time
-import requests
 from pathlib import Path
+
+import requests
+
+from src.config import settings
 
 BASE_URL = "http://localhost:8002/api"
 
@@ -43,8 +44,7 @@ def test_mvp():
 
     # 4. 检查工作空间
     print("\n4. 检查工作空间...")
-    workspace_root = os.getenv("WORKSPACE_ROOT", "/workspace")
-    workspace_root = Path(workspace_root).expanduser().absolute()
+    workspace_root = Path(settings.WORKSPACE_ROOT)
     file_path = workspace_root / thread_id / "hello.py"
 
     if file_path.exists():
