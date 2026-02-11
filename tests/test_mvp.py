@@ -1,6 +1,12 @@
+import sys
 from pathlib import Path
+import json
+from collections import Counter
 
 import requests
+
+# 添加项目根目录到Python路径
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.config import settings
 
@@ -28,9 +34,49 @@ def test_mvp():
     )
 
     print("   响应流：")
+    event_count = Counter()
+    content_chunks = []
+    tool_calls = []
+
     for line in response.iter_lines():
         if line:
-            print(f"   {line.decode()}")
+            line_str = line.decode().strip()
+            if line_str.startswith("data: "):
+                json_str = line_str[6:]
+                try:
+                    event = json.loads(json_str)
+                    event_type = event.get("type", "unknown")
+                    event_count[event_type] += 1
+
+                    if event_type == "content":
+                        content = event.get("content", "")
+                        content_chunks.append(content)
+                        if len(content) < 100:
+                            print(f"   [Content] {content}")
+                        else:
+                            print(f"   [Content] {content[:100]}...")
+                    elif event_type == "tool_start":
+                        tool = event.get("tool", "unknown")
+                        tool_input = event.get("input", {})
+                        tool_calls.append(tool)
+                        print(f"   [Tool Start] {tool}")
+                        if isinstance(tool_input, dict) and len(tool_input) > 0:
+                            print(f"      Input keys: {list(tool_input.keys())}")
+                    elif event_type == "tool_end":
+                        tool = event.get("tool", "unknown")
+                        print(f"   [Tool End] {tool}")
+                    elif event_type == "structured":
+                        print(f"   [Structured] {event.get('data', {})}")
+                    else:
+                        print(f"   [{event_type}] {event}")
+                except json.JSONDecodeError as e:
+                    print(f"   [Error] Failed to parse: {json_str}")
+
+    print(f"\n   事件统计:")
+    for event_type, count in event_count.most_common():
+        print(f"      {event_type}: {count}")
+    print(f"   Content chunks: {len(content_chunks)}")
+    print(f"   Tool calls: {len(tool_calls)}")
 
 
 
