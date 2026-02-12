@@ -4,7 +4,9 @@ import requests
 import time
 import sys
 
-BASE_URL = "http://localhost:8002"
+from src.config import settings
+
+BASE_URL = f"http://localhost:{settings.PORT}/api"
 API_URL = f"{BASE_URL}/api"
 AUTH_URL = f"{BASE_URL}/api/auth"
 

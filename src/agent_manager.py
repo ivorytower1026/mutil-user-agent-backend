@@ -5,8 +5,6 @@ from typing import Any, AsyncIterator
 
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
-from langgraph.checkpoint.postgres import PostgresSaver
-from psycopg_pool import ConnectionPool
 from deepagents import create_deep_agent
 from langgraph.types import Command
 
@@ -14,30 +12,36 @@ from src.config import llm, settings
 from src.docker_sandbox import get_thread_backend
 from src.utils.langfuse_monitor import init_langfuse
 
+from psycopg_pool import AsyncConnectionPool
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
 class AgentManager:
     def __init__(self):
-        # Use PostgresSaver for persistence instead of MemorySaver
-        # Create a connection pool
-        connection_kwargs = {"autocommit": True, "prepare_threshold": 0}
-        pool = ConnectionPool(
+        self.checkpointer = None
+        self.compiled_agent = None
+        self.pool = AsyncConnectionPool(
             conninfo=settings.DATABASE_URL,
             max_size=20,
-            kwargs=connection_kwargs,
+            kwargs={"autocommit": True, "prepare_threshold": 0},
+            open=False,  # 不在构造里自动打开
         )
-        pool.open()
-        
-        self.checkpointer = PostgresSaver(pool)
-        self.checkpointer.setup()  # Create checkpoint tables
-        
+
+    async def init(self):
+        # 👉 必须在 async 上下文里 open pool
+        await self.pool.open()
+        self.checkpointer = AsyncPostgresSaver(self.pool)
+        await self.checkpointer.setup()
+
         self.compiled_agent = create_deep_agent(
             model=llm,
-            backend=lambda runtime: get_thread_backend(self._get_thread_id(runtime) or "default"),
+            backend=lambda runtime: get_thread_backend(
+                self._get_thread_id(runtime) or "default"
+            ),
             checkpointer=self.checkpointer,
             interrupt_on={"execute": True, "write_file": True},
-            system_prompt="用户的工作目录在/workspace中，若无明确要求，请在/workspace目录【及子目录】下执行操作"
+            system_prompt="用户的工作目录在/workspace中，若无明确要求，请在/workspace目录【及子目录】下执行操作",
         )
-        print(f"[AgentManager] Initialized with PostgresSaver")
+        print("[AgentManager] Initialized with AsyncPostgresSaver")
 
     def _get_thread_id(self, runtime: Any) -> str | None:
         config = getattr(runtime, "config", None)

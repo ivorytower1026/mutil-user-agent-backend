@@ -1,7 +1,15 @@
+import asyncio
+from asyncio import WindowsSelectorEventLoopPolicy
+from contextlib import asynccontextmanager
+
+from src.config import settings
+
+asyncio.set_event_loop_policy(WindowsSelectorEventLoopPolicy())
+
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from api.server import router as api_router
+from api.server import router as api_router, agent_manager
 from api.auth import router as auth_router
 from src.database import create_tables
 
@@ -25,12 +33,12 @@ app.include_router(auth_router, prefix="/api/auth")
 # Include API router (authentication required)
 app.include_router(api_router, prefix="/api")
 
-
-@app.on_event("startup")
-async def startup_event():
-    """Create database tables on startup."""
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # 这里执行 async init（例如打开 pool）
     create_tables()
-
+    await agent_manager.init()
+    yield
 
 @app.get("/")
 async def root():
@@ -51,6 +59,6 @@ if __name__ == "__main__":
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
-        port=8002,
+        port=settings.PORT,
         reload=True
     )

@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.config import settings
 import requests.auth
 
-BASE_URL = "http://localhost:8002/api"
+BASE_URL = f"http://localhost:{settings.PORT}/api"
 
 # 简单认证 - 使用固定的用户ID和密码
 TEST_USER_ID = "test-user"
