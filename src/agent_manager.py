@@ -98,16 +98,25 @@ class AgentManager:
         else:
             resume_command = Command(resume={"decisions": [{"type": "approve"}]})
 
+        print(f"[DEBUG] stream_resume_interrupt: thread_id={thread_id}, action={action}")
+        print(f"[DEBUG] resume_command={resume_command}")
+
         try:
+            chunk_count = 0
             async for chunk in self.compiled_agent.astream(
                 resume_command,
                 config=config,
                 stream_mode=["messages", "updates"],
                 subgraphs=True,
             ):
+                chunk_count += 1
+                print(f"[DEBUG] Resume chunk #{chunk_count}: type={type(chunk)}, value={chunk}")
                 formatted = self._format_astream_chunk(chunk)
                 if formatted:
                     yield formatted
+                else:
+                    print(f"[DEBUG] Chunk formatted to None, yielding nothing")
+            print(f"[DEBUG] Total chunks processed: {chunk_count}")
         except Exception as e:
             import traceback
             error_msg = f"{type(e).__name__}: {str(e)}"
@@ -117,6 +126,7 @@ class AgentManager:
             return
         finally:
             # Send done event at the end
+            print(f"[DEBUG] Sending done event for action: {action}")
             yield self._make_sse("done", {"action": action})
 
     def _format_astream_chunk(self, chunk: Any) -> str | None:
@@ -128,9 +138,9 @@ class AgentManager:
             return None
 
         # astream 返回格式可能是 (mode, data) 的 tuple
-        if len(chunk) == 2:
-            mode = chunk[0]
-            data = chunk[1]
+        if len(chunk) == 3:
+            mode = chunk[1]
+            data = chunk[2]
             
             print(f"[DEBUG] mode={mode}, data_type={type(data)}")
             

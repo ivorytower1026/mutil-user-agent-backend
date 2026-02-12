@@ -13,10 +13,18 @@ from api.server import router as api_router, agent_manager
 from api.auth import router as auth_router
 from src.database import create_tables
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # 这里执行 async init（例如打开 pool）
+    create_tables()
+    await agent_manager.init()
+    yield
+
 app = FastAPI(
     title="Multi-tenant AI Agent Platform",
     description="Backend service for AI coding agents",
-    version="0.1.1"
+    version="0.1.1",
+    lifespan=lifespan
 )
 
 app.add_middleware(
@@ -33,12 +41,6 @@ app.include_router(auth_router, prefix="/api/auth")
 # Include API router (authentication required)
 app.include_router(api_router, prefix="/api")
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # 这里执行 async init（例如打开 pool）
-    create_tables()
-    await agent_manager.init()
-    yield
 
 @app.get("/")
 async def root():
