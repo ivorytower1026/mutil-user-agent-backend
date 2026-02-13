@@ -266,3 +266,65 @@ class AgentManager:
             filtered = {k: v for k, v in data.items() if k not in ["content", "messages"]}
             return self._convert_for_json(filtered)
         return self._convert_for_json(data)
+
+    async def get_status(self, thread_id: str) -> dict:
+        config = {"configurable": {"thread_id": thread_id}}
+        snapshot = await self.compiled_agent.aget_state(config)
+        
+        has_pending_tasks = bool(snapshot.tasks)
+        status = "interrupted" if has_pending_tasks else "idle"
+        
+        interrupt_info = None
+        if snapshot.tasks:
+            for task in snapshot.tasks:
+                if hasattr(task, "interrupts") and task.interrupts:
+                    interrupt_info = {
+                        "task_name": task.name,
+                        "interrupts": [str(i) for i in task.interrupts]
+                    }
+                    break
+        
+        messages = snapshot.values.get("messages", [])
+        
+        return {
+            "thread_id": thread_id,
+            "status": status,
+            "has_pending_tasks": has_pending_tasks,
+            "interrupt_info": interrupt_info,
+            "message_count": len(messages)
+        }
+
+    async def get_history(self, thread_id: str) -> dict:
+        config = {"configurable": {"thread_id": thread_id}}
+        snapshot = await self.compiled_agent.aget_state(config)
+        messages = snapshot.values.get("messages", [])
+        
+        formatted_messages = []
+        for msg in messages:
+            role = "unknown"
+            content = ""
+            
+            if hasattr(msg, "type"):
+                msg_type = msg.type
+                if msg_type == "human":
+                    role = "user"
+                elif msg_type == "ai":
+                    role = "assistant"
+                elif msg_type == "tool":
+                    role = "tool"
+                elif msg_type == "system":
+                    role = "system"
+            
+            if hasattr(msg, "content"):
+                content = str(msg.content) if msg.content else ""
+            
+            if role != "unknown" and content:
+                formatted_messages.append({
+                    "role": role,
+                    "content": content
+                })
+        
+        return {
+            "thread_id": thread_id,
+            "messages": formatted_messages
+        }

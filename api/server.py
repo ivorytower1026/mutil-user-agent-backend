@@ -8,7 +8,9 @@ from api.models import (
     ChatRequest,
     CreateSessionResponse,
     ResumeRequest,
-    ResumeResponse
+    ResumeResponse,
+    ThreadStatus,
+    HistoryResponse
 )
 
 router = APIRouter()
@@ -75,3 +77,31 @@ async def stream_resume_interrupt(
         event_generator(),
         media_type="text/event-stream"
     )
+
+
+@router.get("/status/{thread_id}", response_model=ThreadStatus)
+async def get_thread_status(
+    thread_id: str,
+    user_id: str = Depends(get_current_user)
+):
+    """Get thread status.
+    
+    Returns idle or interrupted status for the thread.
+    """
+    verify_thread_permission(user_id, thread_id)
+    status = await agent_manager.get_status(thread_id)
+    return ThreadStatus(**status)
+
+
+@router.get("/history/{thread_id}", response_model=HistoryResponse)
+async def get_thread_history(
+    thread_id: str,
+    user_id: str = Depends(get_current_user)
+):
+    """Get conversation history.
+    
+    Returns all messages in the thread.
+    """
+    verify_thread_permission(user_id, thread_id)
+    history = await agent_manager.get_history(thread_id)
+    return HistoryResponse(**history)
