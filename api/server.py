@@ -106,3 +106,30 @@ async def get_thread_history(
     verify_thread_permission(user_id, thread_id)
     history = await agent_manager.get_history(thread_id)
     return HistoryResponse(**history)
+
+
+@router.delete("/sessions/{thread_id}")
+async def destroy_session(
+        thread_id: str,
+        user_id: str = Depends(get_current_user)
+):
+    """Destroy a session and its container.
+
+    Args:
+        thread_id: The session/thread ID to destroy
+
+    Returns:
+        Status message
+
+    Raises:
+        403: If user doesn't own this thread
+        404: If thread doesn't exist
+    """
+    verify_thread_permission(user_id, thread_id)
+
+    destroyed = destroy_thread_backend(thread_id)
+
+    if not destroyed:
+        raise HTTPException(status_code=404, detail="Thread not found")
+
+    return {"status": "destroyed", "thread_id": thread_id}
