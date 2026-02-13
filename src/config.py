@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     CONTAINER_WORKSPACE_DIR: str
     USER_SHARED: str
     CONTAINER_SKILLS_DIR: str
+    CONTAINER_SHARED_DIR: str
 
     # 数据库配置
     DATABASE_URL: str
