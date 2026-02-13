@@ -151,13 +151,39 @@ class DockerSandboxBackend(BaseSandbox):
                 self._container = None
 
     def _create_container(self) -> docker.models.containers.Container:
-        """Create a new container (does not start it)."""
+        """Create a new container (does not start it).
+        
+        Mounts:
+        - /workspace: Thread-private workspace (rw)
+        - /user_shared: User-level shared directory (rw)
+        - /skills: Global shared skills directory (ro)
+        """
+        user_id = self.thread_id.split('-')[0]
+        
+        # User-level shared directory
+        user_shared_dir = os.path.join(
+            Path(settings.WORKSPACE_ROOT).expanduser().absolute(),
+            user_id,
+            "shared"
+        )
+        os.makedirs(user_shared_dir, exist_ok=True)
+        
+        # Global shared directory
+        shared_dir = str(Path(settings.SHARED_DIR).expanduser().absolute())
+        os.makedirs(shared_dir, exist_ok=True)
+        
+        # Global skills directory (独立挂载)
+        skills_dir = os.path.join(shared_dir, "skills")
+        os.makedirs(skills_dir, exist_ok=True)
+        
         return self.client.containers.create(
             image=self.image,
             command="sleep infinity",
             working_dir=settings.CONTAINER_WORKSPACE_DIR,
             volumes={
                 self.workspace_dir: {"bind": settings.CONTAINER_WORKSPACE_DIR, "mode": "rw"},
-                str(Path(settings.SHARED_DIR).expanduser().absolute()): {"bind": settings.CONTAINER_SHARED_DIR, "mode": "ro"}
+                user_shared_dir: {"bind": settings.USER_SHARED, "mode": "rw"},
+                shared_dir: {"bind": settings.CONTAINER_SHARED_DIR, "mode": "ro"},
+                skills_dir: {"bind": settings.CONTAINER_SKILLS_DIR, "mode": "ro"}
             }
         )

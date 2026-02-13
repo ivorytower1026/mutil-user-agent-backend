@@ -26,7 +26,8 @@ class Settings(BaseSettings):
     SHARED_DIR: str
     DOCKER_IMAGE: str
     CONTAINER_WORKSPACE_DIR: str
-    CONTAINER_SHARED_DIR: str
+    USER_SHARED: str
+    CONTAINER_SKILLS_DIR: str
 
     # 数据库配置
     DATABASE_URL: str
