@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from src.agent_manager import AgentManager
 from src.auth import get_current_user, verify_thread_permission
+from src.docker_sandbox import destroy_thread_backend
 from api.models import (
     ChatRequest,
     CreateSessionResponse,
@@ -75,3 +76,30 @@ async def stream_resume_interrupt(
         event_generator(),
         media_type="text/event-stream"
     )
+
+
+@router.delete("/sessions/{thread_id}")
+async def destroy_session(
+    thread_id: str,
+    user_id: str = Depends(get_current_user)
+):
+    """Destroy a session and its container.
+    
+    Args:
+        thread_id: The session/thread ID to destroy
+        
+    Returns:
+        Status message
+        
+    Raises:
+        403: If user doesn't own this thread
+        404: If thread doesn't exist
+    """
+    verify_thread_permission(user_id, thread_id)
+    
+    destroyed = destroy_thread_backend(thread_id)
+    
+    if not destroyed:
+        raise HTTPException(status_code=404, detail="Thread not found")
+    
+    return {"status": "destroyed", "thread_id": thread_id}
