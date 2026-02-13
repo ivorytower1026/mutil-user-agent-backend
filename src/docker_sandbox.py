@@ -10,6 +10,20 @@ from deepagents.backends.protocol import (
 from src.config import settings
 
 
+def _to_docker_path(path: str) -> str:
+    """Convert Windows path to Docker-compatible path format.
+    
+    Windows Docker Desktop expects paths in Unix format:
+    - D:\\path -> /d/path
+    - D:/path -> /d/path
+    """
+    p = Path(path).absolute()
+    path_str = str(p).replace('\\', '/')
+    if len(path_str) >= 2 and path_str[1] == ':':
+        path_str = '/' + path_str[0].lower() + path_str[2:]
+    return path_str
+
+
 _thread_backends = {}
 
 
@@ -181,9 +195,9 @@ class DockerSandboxBackend(BaseSandbox):
             command="sleep infinity",
             working_dir=settings.CONTAINER_WORKSPACE_DIR,
             volumes={
-                self.workspace_dir: {"bind": settings.CONTAINER_WORKSPACE_DIR, "mode": "rw"},
-                user_shared_dir: {"bind": settings.USER_SHARED, "mode": "rw"},
-                shared_dir: {"bind": settings.CONTAINER_SHARED_DIR, "mode": "ro"},
-                skills_dir: {"bind": settings.CONTAINER_SKILLS_DIR, "mode": "ro"}
+                _to_docker_path(self.workspace_dir): {"bind": settings.CONTAINER_WORKSPACE_DIR, "mode": "rw"},
+                _to_docker_path(user_shared_dir): {"bind": settings.USER_SHARED, "mode": "rw"},
+                _to_docker_path(shared_dir): {"bind": settings.CONTAINER_SHARED_DIR, "mode": "ro"},
+                _to_docker_path(skills_dir): {"bind": settings.CONTAINER_SKILLS_DIR, "mode": "ro"}
             }
         )

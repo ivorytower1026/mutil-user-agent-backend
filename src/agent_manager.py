@@ -65,25 +65,44 @@ class AgentManager:
 
     async def stream_chat(self, thread_id: str, message: str) -> AsyncIterator[str]:
         handler, _ = init_langfuse()
-        config: RunnableConfig = {"configurable": {"thread_id": thread_id}, "callbacks": [handler]}
+        config = {"configurable": {"thread_id": thread_id}, "callbacks": [handler]}
 
         try:
-            async for event in self.compiled_agent.astream_events(
-                {"messages": [HumanMessage(content=message)]},
-                config=config,
-                version="v2"
+            async for stream_mode, data in self.compiled_agent.astream(
+                    {"messages": [HumanMessage(content=message)]},
+                    config=config,
+                    stream_mode=["messages", "updates"],
             ):
-                formatted = self._format_event(event)
-                if formatted:
-                    yield formatted
+                if stream_mode == "messages":
+                    # 处理消息流（AIMessageChunk 等）
+                    msg, metadata = data
+                    if hasattr(msg, "content") and msg.content:
+                        yield self._make_sse("content", {"content": msg.content})
+
+                elif stream_mode == "updates":
+                    # 检查是否有 interrupt
+                    if "__interrupt__" in data:
+                        interrupt_list = data["__interrupt__"]
+                        if interrupt_list:
+                            interrupt = interrupt_list[0]
+                            requests = interrupt.value.get("action_requests", [])
+                            if requests:
+                                request = requests[0]
+                                yield self._make_sse("interrupt", {
+                                    "info": request.get("description", ""),
+                                    "taskName": request.get("name", "Unknown"),
+                                    "data": self._sanitize_for_json(interrupt.value)
+                                })
+                    else:
+                        # 处理其他 updates（工具调用等）
+                        for source, update in data.items():
+                            if source in ("model", "tools"):
+                                # 可以在这里处理 tool_start/tool_end
+                                pass
+
         except Exception as e:
-            import traceback
-            error_msg = f"{type(e).__name__}: {str(e)}"
-            print(f"[ERROR] In stream_chat: {error_msg}")
-            traceback.print_exc()
-            yield self._make_sse("error", {"message": error_msg})
+            yield self._make_sse("error", {"message": str(e)})
         finally:
-            # Send done event at the end
             yield self._make_sse("done", {})
 
     async def stream_resume_interrupt(self, thread_id: str, action: str) -> AsyncIterator[str]:
