@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from src.agent_manager import AgentManager
 from src.auth import get_current_user, verify_thread_permission
+from src.docker_sandbox import destroy_thread_backend
 from api.models import (
     ChatRequest,
     CreateSessionResponse,
@@ -85,7 +86,7 @@ async def get_thread_status(
     user_id: str = Depends(get_current_user)
 ):
     """Get thread status.
-    
+
     Returns idle or interrupted status for the thread.
     """
     verify_thread_permission(user_id, thread_id)
@@ -99,7 +100,7 @@ async def get_thread_history(
     user_id: str = Depends(get_current_user)
 ):
     """Get conversation history.
-    
+
     Returns all messages in the thread.
     """
     verify_thread_permission(user_id, thread_id)
