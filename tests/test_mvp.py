@@ -165,7 +165,8 @@ def test_mvp():
     # 4. 检查工作空间
     print("\n4. 检查工作空间...")
     workspace_root = Path(settings.WORKSPACE_ROOT)
-    file_path = workspace_root / thread_id / "hello.py"
+    user_id = thread_id.split('-')[0]
+    file_path = workspace_root / user_id / thread_id / "hello.py"
 
     if file_path.exists():
         print(f"   [OK] File created: {file_path}")

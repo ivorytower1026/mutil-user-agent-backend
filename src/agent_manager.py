@@ -149,9 +149,16 @@ class AgentManager:
                 if isinstance(data, tuple) and len(data) == 2:
                     token, metadata = data
                     if token:
-                        return self._make_sse("content", {"content": token})
+                        if isinstance(token, str):
+                            return self._make_sse("content", {"content": token})
+                        elif hasattr(token, "content"):
+                            return self._make_sse("content", {"content": getattr(token, "content", "")})
+                        else:
+                            return None
                 elif isinstance(data, str):
                     return self._make_sse("content", {"content": data})
+                else:
+                    return None
 
             elif mode == "updates":
                 # 处理状态更新
@@ -231,7 +238,8 @@ class AgentManager:
 
     def _make_sse(self, event_type: str, data: dict) -> str:
         event_data = {"type": event_type, **data}
-        return f"data: {json.dumps(event_data, ensure_ascii=False)}\n\n"
+        sanitized = self._sanitize_for_json(event_data)
+        return f"data: {json.dumps(sanitized, ensure_ascii=False)}\n\n"
 
     def _sanitize_tool_input(self, input_data: Any) -> Any:
         if isinstance(input_data, dict) and "content" in input_data:
@@ -243,18 +251,18 @@ class AgentManager:
             return {k: v for k, v in output_data.items() if k not in ["content", "messages"]}
         return output_data
 
-    def _sanitize_for_json(self, data: Any) -> Any:
-        def _convert(obj: Any) -> Any:
-            if isinstance(obj, (str, int, float, bool, type(None))):
-                return obj
-            elif isinstance(obj, dict):
-                return {k: _convert(v) for k, v in obj.items()}
-            elif isinstance(obj, (list, tuple)):
-                return [_convert(item) for item in obj]
-            else:
-                return str(obj)
+    def _convert_for_json(self, data: Any) -> Any:
+        if isinstance(data, (str, int, float, bool, type(None))):
+            return data
+        elif isinstance(data, dict):
+            return {k: self._convert_for_json(v) for k, v in data.items()}
+        elif isinstance(data, (list, tuple)):
+            return [self._convert_for_json(item) for item in data]
+        else:
+            return str(data)
 
+    def _sanitize_for_json(self, data: Any) -> Any:
         if isinstance(data, dict):
             filtered = {k: v for k, v in data.items() if k not in ["content", "messages"]}
-            return _convert(filtered)
-        return _convert(data)
+            return self._convert_for_json(filtered)
+        return self._convert_for_json(data)
