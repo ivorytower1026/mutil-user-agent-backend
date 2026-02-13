@@ -168,8 +168,12 @@ class DockerSandboxBackend(BaseSandbox):
         )
         os.makedirs(user_shared_dir, exist_ok=True)
         
-        # Global skills directory
-        skills_dir = str(Path(settings.SHARED_DIR).expanduser().absolute())
+        # Global shared directory
+        shared_dir = str(Path(settings.SHARED_DIR).expanduser().absolute())
+        os.makedirs(shared_dir, exist_ok=True)
+        
+        # Global skills directory (独立挂载)
+        skills_dir = os.path.join(shared_dir, "skills")
         os.makedirs(skills_dir, exist_ok=True)
         
         return self.client.containers.create(
@@ -179,6 +183,7 @@ class DockerSandboxBackend(BaseSandbox):
             volumes={
                 self.workspace_dir: {"bind": settings.CONTAINER_WORKSPACE_DIR, "mode": "rw"},
                 user_shared_dir: {"bind": settings.USER_SHARED, "mode": "rw"},
-                skills_dir: {"bind": settings.CONTAINER_SHARED_DIR, "mode": "ro"}
+                shared_dir: {"bind": settings.CONTAINER_SHARED_DIR, "mode": "ro"},
+                skills_dir: {"bind": settings.CONTAINER_SKILLS_DIR, "mode": "ro"}
             }
         )
