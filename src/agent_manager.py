@@ -207,27 +207,15 @@ class AgentManager:
                 "output": self._sanitize_for_json(output_data)
             })
 
-        # 4. 模型生成结束 - 通知流结束
+        # 4. 模型生成结束 - 只发送结束标记
         elif event_type == "on_chat_model_end":
-            output = data.get("output", {})
-            content = self._extract_content(output)
-            if content:
-                return self._make_sse("content", {"content": content, "is_final": True})
+            return self._make_sse("content", {"is_final": True})
 
         # 5. 解析器流式输出（如果使用结构化输出）
         elif event_type == "on_parser_stream":
             chunk = data.get("chunk")
             if chunk:
                 return self._make_sse("structured", {"data": self._sanitize_for_json(chunk)})
-
-        # 6. 链的流式输出 - 过滤掉调试信息，只保留有用的部分
-        elif event_type == "on_chain_stream":
-            chunk = data.get("chunk")
-            if chunk and isinstance(chunk, dict):
-                # 只输出非空的、有意义的chain数据
-                meaningful_data = {k: v for k, v in chunk.items() if v is not None and v != "" and v != {}}
-                if meaningful_data:
-                    return self._make_sse("chain", {"data": self._sanitize_for_json(meaningful_data)})
 
         return None
 
@@ -238,7 +226,10 @@ class AgentManager:
 
     def _make_sse(self, event_type: str, data: dict) -> str:
         event_data = {"type": event_type, **data}
-        sanitized = self._sanitize_for_json(event_data)
+        if event_type == "content":
+            sanitized = self._convert_for_json(event_data)
+        else:
+            sanitized = self._sanitize_for_json(event_data)
         return f"data: {json.dumps(sanitized, ensure_ascii=False)}\n\n"
 
     def _sanitize_tool_input(self, input_data: Any) -> Any:
