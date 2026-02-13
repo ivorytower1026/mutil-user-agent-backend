@@ -225,12 +225,24 @@ class AgentManager:
         return getattr(chunk, "content", "")
 
     def _make_sse(self, event_type: str, data: dict) -> str:
-        event_data = {"type": event_type, **data}
+        event_name_map = {
+            "content": "messages/partial",
+            "tool_start": "tool/start",
+            "tool_end": "tool/end",
+            "interrupt": "interrupt",
+            "update": "updates",
+            "structured": "structured",
+            "error": "error",
+            "done": "end",
+        }
+        event_name = event_name_map.get(event_type, event_type)
+        
         if event_type == "content":
-            sanitized = self._convert_for_json(event_data)
+            sanitized = self._convert_for_json(data)
         else:
-            sanitized = self._sanitize_for_json(event_data)
-        return f"data: {json.dumps(sanitized, ensure_ascii=False)}\n\n"
+            sanitized = self._sanitize_for_json(data)
+        
+        return f"event: {event_name}\ndata: {json.dumps(sanitized, ensure_ascii=False)}\n\n"
 
     def _sanitize_tool_input(self, input_data: Any) -> Any:
         if isinstance(input_data, dict) and "content" in input_data:

@@ -18,6 +18,45 @@ TEST_USER_ID = "test-user"
 TEST_PASSWORD = "test-password-123"
 
 
+def parse_sse_events(response):
+    """Parse SSE events from response stream.
+    
+    New format:
+        event: messages/partial
+        data: {"content": "xxx"}
+    """
+    event_type = None
+    for line in response.iter_lines():
+        if line:
+            line_str = line.decode().strip()
+            if line_str.startswith("event:"):
+                event_type = line_str[6:].strip()
+            elif line_str.startswith("data:"):
+                json_str = line_str[5:].strip()
+                try:
+                    data = json.loads(json_str)
+                    yield event_type, data
+                    event_type = None
+                except json.JSONDecodeError:
+                    pass
+
+
+def normalize_event_type(event_type: str | None) -> str:
+    """Map new event names to old format for backward compatibility."""
+    if event_type is None:
+        return "unknown"
+    event_map = {
+        "messages/partial": "content",
+        "tool/start": "tool_start",
+        "tool/end": "tool_end",
+        "interrupt": "interrupt",
+        "updates": "update",
+        "error": "error",
+        "end": "done",
+    }
+    return event_map.get(event_type, event_type)
+
+
 def test_mvp():
     print("=" * 50)
     print("MVP测试脚本")
@@ -71,39 +110,38 @@ def test_mvp():
     content_chunks = []
     tool_calls = []
 
-    for line in response.iter_lines():
-        if line:
-            line_str = line.decode().strip()
-            if line_str.startswith("data: "):
-                json_str = line_str[6:]
-                try:
-                    event = json.loads(json_str)
-                    event_type = event.get("type", "unknown")
-                    event_count[event_type] += 1
+    for raw_event_type, event in parse_sse_events(response):
+        event_type = normalize_event_type(raw_event_type)
+        event_count[event_type] += 1
 
-                    if event_type == "content":
-                        content = event.get("content", "")
-                        content_chunks.append(content)
-                        if len(content) < 100:
-                            print(f"   [Content] {content}")
-                        else:
-                            print(f"   [Content] {content[:100]}...")
-                    elif event_type == "tool_start":
-                        tool = event.get("tool", "unknown")
-                        tool_input = event.get("input", {})
-                        tool_calls.append(tool)
-                        print(f"   [Tool Start] {tool}")
-                        if isinstance(tool_input, dict) and len(tool_input) > 0:
-                            print(f"      Input keys: {list(tool_input.keys())}")
-                    elif event_type == "tool_end":
-                        tool = event.get("tool", "unknown")
-                        print(f"   [Tool End] {tool}")
-                    elif event_type == "structured":
-                        print(f"   [Structured] {event.get('data', {})}")
-                    else:
-                        print(f"   [{event_type}] {event}")
-                except json.JSONDecodeError as e:
-                    print(f"   [Error] Failed to parse: {json_str}")
+        if event_type == "content":
+            content = event.get("content", "")
+            if content:
+                content_chunks.append(content)
+                if len(content) < 100:
+                    print(f"   [Content] {content}")
+                else:
+                    print(f"   [Content] {content[:100]}...")
+            elif event.get("is_final"):
+                print(f"   [Content] (final)")
+        elif event_type == "tool_start":
+            tool = event.get("tool", "unknown")
+            tool_input = event.get("input", {})
+            tool_calls.append(tool)
+            print(f"   [Tool Start] {tool}")
+            if isinstance(tool_input, dict) and len(tool_input) > 0:
+                print(f"      Input keys: {list(tool_input.keys())}")
+        elif event_type == "tool_end":
+            tool = event.get("tool", "unknown")
+            print(f"   [Tool End] {tool}")
+        elif event_type == "structured":
+            print(f"   [Structured] {event.get('data', {})}")
+        elif event_type == "done":
+            print(f"   [Done]")
+        elif event_type == "error":
+            print(f"   [Error] {event.get('message', '')}")
+        else:
+            print(f"   [{event_type}] {event}")
 
     print(f"\n   事件统计:")
     for event_type, count in event_count.most_common():
@@ -124,39 +162,35 @@ def test_mvp():
     
     print("   响应流:")
     resume_event_count = Counter()
-    for line in response.iter_lines():
-        if line:
-            line_str = line.decode().strip()
-            if line_str.startswith("data: "):
-                json_str = line_str[6:]
-                try:
-                    event = json.loads(json_str)
-                    event_type = event.get("type", "unknown")
-                    resume_event_count[event_type] += 1
-                    
-                    if event_type == "content":
-                        content = event.get("content", "")
-                        if len(content) < 100:
-                            print(f"   [{event_type}] {content}")
-                        else:
-                            print(f"   [{event_type}] {content[:100]}...")
-                    elif event_type == "tool_start":
-                        tool = event.get("tool", "unknown")
-                        print(f"   [{event_type}] {tool}")
-                    elif event_type == "tool_end":
-                        tool = event.get("tool", "unknown")
-                        print(f"   [{event_type}] {tool}")
-                    elif event_type == "interrupt":
-                        info = event.get("info", "")
-                        print(f"   [{event_type}] {info}")
-                    elif event_type == "update":
-                        print(f"   [{event_type}] {event.get('data', {})}")
-                    elif event_type == "done":
-                        action = event.get("action", "")
-                        print(f"   >>> Resume completed ({action})")
-                        break
-                except json.JSONDecodeError:
-                    pass
+    for raw_event_type, event in parse_sse_events(response):
+        event_type = normalize_event_type(raw_event_type)
+        resume_event_count[event_type] += 1
+        
+        if event_type == "content":
+            content = event.get("content", "")
+            if content:
+                if len(content) < 100:
+                    print(f"   [{event_type}] {content}")
+                else:
+                    print(f"   [{event_type}] {content[:100]}...")
+            elif event.get("is_final"):
+                print(f"   [{event_type}] (final)")
+        elif event_type == "tool_start":
+            tool = event.get("tool", "unknown")
+            print(f"   [{event_type}] {tool}")
+        elif event_type == "tool_end":
+            tool = event.get("tool", "unknown")
+            print(f"   [{event_type}] {tool}")
+        elif event_type == "interrupt":
+            info = event.get("info", "")
+            print(f"   [{event_type}] {info}")
+        elif event_type == "update":
+            print(f"   [{event_type}] {event.get('data', {})}")
+        elif event_type == "done":
+            action = event.get("action", "")
+            print(f"   >>> Resume completed ({action})")
+        elif event_type == "error":
+            print(f"   [Error] {event.get('message', '')}")
     
     print(f"\n   Resume 事件统计:")
     for etype, count in resume_event_count.most_common():
