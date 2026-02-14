@@ -35,3 +35,36 @@ class Message(BaseModel):
 class HistoryResponse(BaseModel):
     thread_id: str
     messages: list[Message]
+
+
+# WebDAV and Chunk Upload Models
+
+class UploadInitRequest(BaseModel):
+    filename: str
+    total_chunks: int
+    total_size: int
+    target_path: str | None = None
+
+
+class UploadInitResponse(BaseModel):
+    upload_id: str
+    chunk_size: int
+
+
+class UploadChunkRequest(BaseModel):
+    upload_id: str
+    chunk_index: int
+
+
+class UploadCompleteRequest(BaseModel):
+    upload_id: str
+    target_path: str
+
+
+class FileInfo(BaseModel):
+    name: str
+    path: str
+    type: Literal["file", "directory"]
+    size: int | None = None
+    modified: str | None = None
+    etag: str | None = None
