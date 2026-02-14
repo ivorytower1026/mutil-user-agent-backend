@@ -11,19 +11,23 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from api.server import router as api_router, agent_manager
 from api.auth import router as auth_router
+from api.webdav import router as webdav_router
+from api.files import router as files_router, upload_manager
 from src.database import create_tables
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 这里执行 async init（例如打开 pool）
     create_tables()
     await agent_manager.init()
+    cleaned = upload_manager.cleanup_stale()
+    if cleaned > 0:
+        print(f"[Startup] Cleaned up {cleaned} stale upload sessions")
     yield
 
 app = FastAPI(
     title="Multi-tenant AI Agent Platform",
     description="Backend service for AI coding agents",
-    version="0.1.1",
+    version="0.1.5",
     lifespan=lifespan
 )
 
@@ -41,18 +45,26 @@ app.include_router(auth_router, prefix="/api/auth")
 # Include API router (authentication required)
 app.include_router(api_router, prefix="/api")
 
+# Include WebDAV router
+app.include_router(webdav_router, prefix="/dav", tags=["webdav"])
+
+# Include files router for chunk upload
+app.include_router(files_router, prefix="/api")
+
 
 @app.get("/")
 async def root():
     return {
         "message": "Multi-tenant AI Agent Platform",
-        "version": "0.1.1",
+        "version": "0.1.5",
         "endpoints": {
             "register": "POST /api/auth/register",
             "login": "POST /api/auth/login",
             "create_session": "POST /api/sessions",
             "chat": "POST /api/chat/{thread_id}",
-            "resume": "POST /api/resume/{thread_id}"
+            "resume": "POST /api/resume/{thread_id}",
+            "webdav": "/dav/{path} (PROPFIND/GET/PUT/MKCOL/DELETE/MOVE)",
+            "chunk_upload": "/api/files/init-upload, /api/files/upload-chunk, /api/files/complete-upload"
         }
     }
 
