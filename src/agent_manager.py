@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import uuid
@@ -9,6 +10,7 @@ from deepagents import create_deep_agent
 from langgraph.types import Command
 
 from src.config import llm, settings
+from src.database import SessionLocal, Thread
 from src.docker_sandbox import get_thread_backend
 from src.utils.langfuse_monitor import init_langfuse
 
@@ -61,49 +63,97 @@ class AgentManager:
         """
         thread_id = f"{user_id}-{uuid.uuid4()}"
         get_thread_backend(thread_id)
+        
+        with SessionLocal() as db:
+            db.add(Thread(thread_id=thread_id, user_id=user_id))
+            db.commit()
+        
         return thread_id
 
     async def stream_chat(self, thread_id: str, message: str) -> AsyncIterator[str]:
-        handler, _ = init_langfuse()
-        config = {"configurable": {"thread_id": thread_id}, "callbacks": [handler]}
-
-        try:
-            async for stream_mode, data in self.compiled_agent.astream(
+        """Stream chat with parallel title generation."""
+        queue: asyncio.Queue[str | None] = asyncio.Queue()
+        pending = {'count': 2}
+        
+        with SessionLocal() as db:
+            thread = db.query(Thread).filter(Thread.thread_id == thread_id).first()
+            need_title = thread and thread.title is None
+        
+        async def agent_task():
+            try:
+                handler, _ = init_langfuse()
+                config = {"configurable": {"thread_id": thread_id}, "callbacks": [handler]}
+                
+                async for stream_mode, data in self.compiled_agent.astream(
                     {"messages": [HumanMessage(content=message)]},
                     config=config,
                     stream_mode=["messages", "updates"],
-            ):
-                if stream_mode == "messages":
-                    # 处理消息流（AIMessageChunk 等）
-                    msg, metadata = data
-                    if hasattr(msg, "content") and msg.content:
-                        yield self._make_sse("content", {"content": msg.content})
-
-                elif stream_mode == "updates":
-                    # 检查是否有 interrupt
-                    if "__interrupt__" in data:
-                        interrupt_list = data["__interrupt__"]
-                        if interrupt_list:
-                            interrupt = interrupt_list[0]
-                            requests = interrupt.value.get("action_requests", [])
-                            if requests:
-                                request = requests[0]
-                                yield self._make_sse("interrupt", {
-                                    "info": request.get("description", ""),
-                                    "taskName": request.get("name", "Unknown"),
-                                    "data": self._sanitize_for_json(interrupt.value)
-                                })
-                    else:
-                        # 处理其他 updates（工具调用等）
-                        for source, update in data.items():
-                            if source in ("model", "tools"):
-                                # 可以在这里处理 tool_start/tool_end
-                                pass
-
-        except Exception as e:
-            yield self._make_sse("error", {"message": str(e)})
-        finally:
-            yield self._make_sse("done", {})
+                ):
+                    formatted = self._format_stream_data(stream_mode, data)
+                    if formatted:
+                        await queue.put(formatted)
+            except Exception as e:
+                await queue.put(self._make_sse("error", {"message": str(e)}))
+            finally:
+                pending['count'] -= 1
+                if pending['count'] == 0:
+                    await queue.put(None)
+        
+        async def title_task():
+            if not need_title:
+                pending['count'] -= 1
+                return
+            try:
+                prompt = f"用5-10个字概括主题，只返回标题：{message[:100]}"
+                response = await llm.ainvoke(prompt)
+                title = str(response.content).strip()[:20]
+                
+                with SessionLocal() as db:
+                    thread = db.query(Thread).filter(Thread.thread_id == thread_id).first()
+                    if thread and thread.title is None:
+                        thread.title = title
+                        db.commit()
+                
+                await queue.put(self._make_sse("title_updated", {"title": title}))
+            except Exception as e:
+                print(f"[AgentManager] Title generation failed: {e}")
+            finally:
+                pending['count'] -= 1
+                if pending['count'] == 0:
+                    await queue.put(None)
+        
+        asyncio.create_task(agent_task())
+        asyncio.create_task(title_task())
+        
+        while True:
+            item = await queue.get()
+            if item is None:
+                break
+            yield item
+    
+    def _format_stream_data(self, stream_mode: str, data: Any) -> str | None:
+        """Format stream data to SSE string."""
+        if stream_mode == "messages":
+            if isinstance(data, tuple) and len(data) == 2:
+                msg, metadata = data
+                if hasattr(msg, "content") and msg.content:
+                    return self._make_sse("content", {"content": msg.content})
+        
+        elif stream_mode == "updates":
+            if isinstance(data, dict):
+                if "__interrupt__" in data:
+                    interrupt_list = data["__interrupt__"]
+                    if interrupt_list:
+                        interrupt = interrupt_list[0]
+                        requests = interrupt.value.get("action_requests", [])
+                        if requests:
+                            request = requests[0]
+                            return self._make_sse("interrupt", {
+                                "info": request.get("description", ""),
+                                "taskName": request.get("name", "Unknown"),
+                                "data": self._sanitize_for_json(interrupt.value)
+                            })
+        return None
 
     async def stream_resume_interrupt(self, thread_id: str, action: str) -> AsyncIterator[str]:
         if action not in ["continue", "cancel"]:
@@ -253,6 +303,7 @@ class AgentManager:
             "structured": "structured",
             "error": "error",
             "done": "end",
+            "title_updated": "title_updated",
         }
         event_name = event_name_map.get(event_type, event_type)
         
@@ -350,3 +401,25 @@ class AgentManager:
             "thread_id": thread_id,
             "messages": formatted_messages
         }
+
+    async def list_sessions(self, user_id: str, page: int = 1, page_size: int = 20) -> dict:
+        """List all sessions for a user."""
+        with SessionLocal() as db:
+            query = db.query(Thread).filter(Thread.user_id == user_id)
+            total = query.count()
+            threads = query.order_by(Thread.created_at.desc()) \
+                           .offset((page - 1) * page_size) \
+                           .limit(page_size).all()
+        
+        result = []
+        for t in threads:
+            status = await self.get_status(t.thread_id)
+            result.append({
+                "thread_id": t.thread_id,
+                "title": t.title,
+                "created_at": t.created_at.isoformat() if t.created_at else None,
+                "message_count": status["message_count"],
+                "status": status["status"]
+            })
+        
+        return {"threads": result, "total": total}

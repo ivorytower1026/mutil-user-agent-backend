@@ -20,6 +20,16 @@ class User(Base):
     created_at = Column(DateTime, server_default=func.now())
 
 
+class Thread(Base):
+    """Thread model for session metadata."""
+    __tablename__ = "threads"
+
+    thread_id = Column(String(100), primary_key=True)
+    user_id = Column(String(50), nullable=False, index=True)
+    title = Column(String(20), nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+
 def get_db():
     """Get database session."""
     db = SessionLocal()

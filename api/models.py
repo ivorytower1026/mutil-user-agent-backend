@@ -1,3 +1,4 @@
+from datetime import datetime
 from pydantic import BaseModel
 from typing import Literal, Optional
 
@@ -35,3 +36,16 @@ class Message(BaseModel):
 class HistoryResponse(BaseModel):
     thread_id: str
     messages: list[Message]
+
+
+class ThreadListItem(BaseModel):
+    thread_id: str
+    title: Optional[str] = None
+    created_at: Optional[datetime] = None
+    message_count: int = 0
+    status: Literal["idle", "interrupted"] = "idle"
+
+
+class ThreadListResponse(BaseModel):
+    threads: list[ThreadListItem]
+    total: int

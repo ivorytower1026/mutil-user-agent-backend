@@ -11,7 +11,8 @@ from api.models import (
     ResumeRequest,
     ResumeResponse,
     ThreadStatus,
-    HistoryResponse
+    HistoryResponse,
+    ThreadListResponse
 )
 
 router = APIRouter()
@@ -26,6 +27,18 @@ async def create_session(user_id: str = Depends(get_current_user)):
     """
     thread_id = await agent_manager.create_session(user_id)
     return CreateSessionResponse(thread_id=thread_id)
+
+
+@router.get("/sessions", response_model=ThreadListResponse)
+async def list_sessions(
+    page: int = 1,
+    page_size: int = 20,
+    user_id: str = Depends(get_current_user)
+):
+    """List all sessions for current user."""
+    if page_size > 100:
+        page_size = 100
+    return await agent_manager.list_sessions(user_id, page, page_size)
 
 
 @router.post("/chat/{thread_id}")
