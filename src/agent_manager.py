@@ -9,7 +9,7 @@ from langchain_core.runnables import RunnableConfig
 from deepagents import create_deep_agent
 from langgraph.types import Command
 
-from src.config import llm, settings
+from src.config import big_llm, settings, flash_llm
 from src.database import SessionLocal, Thread
 from src.docker_sandbox import get_thread_backend
 from src.utils.langfuse_monitor import init_langfuse
@@ -35,7 +35,7 @@ class AgentManager:
         await self.checkpointer.setup()
 
         self.compiled_agent = create_deep_agent(
-            model=llm,
+            model=big_llm,
             backend=lambda runtime: get_thread_backend(
                 self._get_thread_id(runtime) or "default"
             ),
@@ -105,7 +105,7 @@ class AgentManager:
                 return
             try:
                 prompt = f"用5-10个字概括主题，只返回标题：{message[:100]}"
-                response = await llm.ainvoke(prompt)
+                response = await flash_llm.ainvoke(prompt)
                 title = str(response.content).strip()[:20]
                 
                 with SessionLocal() as db:
@@ -122,14 +122,16 @@ class AgentManager:
                 if pending['count'] == 0:
                     await queue.put(None)
         
-        asyncio.create_task(agent_task())
         asyncio.create_task(title_task())
-        
+        asyncio.create_task(agent_task())
+
         while True:
             item = await queue.get()
             if item is None:
                 break
             yield item
+        
+        yield self._make_sse("done", {})
     
     def _format_stream_data(self, stream_mode: str, data: Any) -> str | None:
         """Format stream data to SSE string."""

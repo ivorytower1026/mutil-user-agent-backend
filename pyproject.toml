@@ -24,4 +24,5 @@ dependencies = [
     "passlib[bcrypt]>=1.7.4",
     "python-multipart>=0.0.6",
     "argon2-cffi>=25.1.0",
+    "langchain-core>=1.2.9",
 ]

@@ -39,6 +39,9 @@ class Settings(BaseSettings):
 
     PORT: int
 
+    OPENAI_API_BASE_8001: str
+    OPENAI_API_BASE_8002: str
+
     @field_validator("IS_LANGFUSE", mode="before")
     def parse_is_langfuse(cls, v):
         return int(v)
@@ -54,7 +57,7 @@ def _resolve_path(path_str: str) -> str:
 settings = Settings()
 
 # Create LLM instance using settings
-llm = ChatOpenAI(
+llm_glm_4_7 = ChatOpenAI(
     model="glm-4.7",
     temperature=0,
     openai_api_key=settings.ZHIPUAI_API_KEY,
@@ -64,3 +67,34 @@ llm = ChatOpenAI(
         "thinking": {"type": "enabled"}
     }
 )
+
+llm_glm_5 = ChatOpenAI(
+    model="glm-5",
+    temperature=0,
+    openai_api_key=settings.ZHIPUAI_API_KEY,
+    openai_api_base=settings.ZHIPUAI_API_BASE,
+    extra_body={
+        "response_format": {"type": "text"},
+        "thinking": {"type": "enabled"}
+    }
+)
+
+llm_qwen3_vl_30b_a3b_instruct = ChatOpenAI(
+    model="Qwen3-VL-30B-A3B-Instruct",
+    base_url=settings.OPENAI_API_BASE_8001,
+    api_key="EMPTY",   # vllm不校验
+    temperature=0.7,
+    max_tokens=1024,
+)
+
+
+llm_minimax_m2_1 = ChatOpenAI(
+    model="MiniMax-M2.1",
+    base_url=settings.OPENAI_API_BASE_8002,
+    api_key="EMPTY",   # vllm不校验
+    temperature=0.7,
+    max_tokens=1024,
+)
+
+big_llm = llm_glm_4_7
+flash_llm = llm_qwen3_vl_30b_a3b_instruct
