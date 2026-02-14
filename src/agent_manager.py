@@ -155,6 +155,28 @@ class AgentManager:
                                 "taskName": request.get("name", "Unknown"),
                                 "data": self._sanitize_for_json(interrupt.value)
                             })
+                
+                for key, value in data.items():
+                    if key == "__interrupt__":
+                        continue
+                    if isinstance(value, dict):
+                        if "input" in value and "output" not in value:
+                            return self._make_sse("tool_start", {
+                                "tool": key,
+                                "input": self._sanitize_for_json(value.get("input", {}))
+                            })
+                        elif "output" in value:
+                            return self._make_sse("tool_end", {
+                                "tool": key,
+                                "output": self._sanitize_for_json(value.get("output", {}))
+                            })
+                    elif isinstance(value, list):
+                        for item in value:
+                            if hasattr(item, 'name') and hasattr(item, 'args'):
+                                return self._make_sse("tool_start", {
+                                    "tool": getattr(item, 'name', key),
+                                    "input": self._sanitize_for_json(getattr(item, 'args', {}))
+                                })
         return None
 
     async def stream_resume_interrupt(self, thread_id: str, action: str) -> AsyncIterator[str]:
