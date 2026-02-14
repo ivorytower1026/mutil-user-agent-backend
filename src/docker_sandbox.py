@@ -30,16 +30,15 @@ _thread_backends = {}
 def get_thread_backend(thread_id: str) -> 'DockerSandboxBackend':
     """Get or create a thread backend.
     
-    Workspace directory structure: workspaces/{user_id}/{thread_id}/
-    where thread_id format is {user_id}-{uuid}
+    Workspace directory structure: workspaces/{user_id}/
+    All threads of the same user share the same workspace directory.
     """
     if thread_id not in _thread_backends:
         user_id = thread_id.split('-')[0]
         
         workspace_dir = os.path.join(
             Path(settings.WORKSPACE_ROOT).expanduser().absolute(),
-            user_id,
-            thread_id
+            user_id
         )
         os.makedirs(workspace_dir, exist_ok=True)
         _thread_backends[thread_id] = DockerSandboxBackend(thread_id, workspace_dir)
@@ -168,25 +167,13 @@ class DockerSandboxBackend(BaseSandbox):
         """Create a new container (does not start it).
         
         Mounts:
-        - /workspace: Thread-private workspace (rw)
-        - /user_shared: User-level shared directory (rw)
-        - /skills: Global shared skills directory (ro)
+        - /workspace: User-level workspace (rw) - shared by all user's threads
+        - /shared: Global shared directory (ro)
+        - /skills: Global skills directory (ro)
         """
-        user_id = self.thread_id.split('-')[0]
-        
-        # User-level shared directory
-        user_shared_dir = os.path.join(
-            Path(settings.WORKSPACE_ROOT).expanduser().absolute(),
-            user_id,
-            "shared"
-        )
-        os.makedirs(user_shared_dir, exist_ok=True)
-        
-        # Global shared directory
         shared_dir = str(Path(settings.SHARED_DIR).expanduser().absolute())
         os.makedirs(shared_dir, exist_ok=True)
         
-        # Global skills directory (独立挂载)
         skills_dir = os.path.join(shared_dir, "skills")
         os.makedirs(skills_dir, exist_ok=True)
         
@@ -196,7 +183,6 @@ class DockerSandboxBackend(BaseSandbox):
             working_dir=settings.CONTAINER_WORKSPACE_DIR,
             volumes={
                 _to_docker_path(self.workspace_dir): {"bind": settings.CONTAINER_WORKSPACE_DIR, "mode": "rw"},
-                _to_docker_path(user_shared_dir): {"bind": settings.USER_SHARED, "mode": "rw"},
                 _to_docker_path(shared_dir): {"bind": settings.CONTAINER_SHARED_DIR, "mode": "ro"},
                 _to_docker_path(skills_dir): {"bind": settings.CONTAINER_SKILLS_DIR, "mode": "ro"}
             }

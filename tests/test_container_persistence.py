@@ -107,8 +107,8 @@ def test_file_persistence():
         destroy_thread_backend(thread_id)
 
 
-def test_user_shared_directory():
-    """Test that same user's threads can share files via /user_shared."""
+def test_workspace_shared():
+    """Test that same user's threads share the same /workspace directory."""
     thread_id_1 = "shareduser-sharing-001"
     thread_id_2 = "shareduser-sharing-002"
     
@@ -116,24 +116,22 @@ def test_user_shared_directory():
         backend1 = get_thread_backend(thread_id_1)
         backend2 = get_thread_backend(thread_id_2)
         
-        # thread1 写入共享文件
-        result1 = backend1.execute("echo 'shared data' > /user_shared/test.txt")
-        assert result1.exit_code == 0, f"write shared failed: {result1.output}"
+        result1 = backend1.execute("echo 'shared data' > /workspace/test.txt")
+        assert result1.exit_code == 0, f"write failed: {result1.output}"
         
-        # thread2 读取共享文件
-        result2 = backend2.execute("cat /user_shared/test.txt")
-        assert result2.exit_code == 0, f"read shared failed: {result2.output}"
+        result2 = backend2.execute("cat /workspace/test.txt")
+        assert result2.exit_code == 0, f"read failed: {result2.output}"
         assert "shared data" in result2.output, f"Shared content not found: {result2.output}"
         
-        print("[PASS] test_user_shared_directory")
+        print("[PASS] test_workspace_shared")
         
     finally:
         destroy_thread_backend(thread_id_1)
         destroy_thread_backend(thread_id_2)
 
 
-def test_user_shared_isolation():
-    """Test that different users cannot see each other's shared files."""
+def test_workspace_isolation():
+    """Test that different users have isolated /workspace directories."""
     thread_id_a = "userA-isolation-001"
     thread_id_b = "userB-isolation-001"
     
@@ -141,23 +139,19 @@ def test_user_shared_isolation():
         backend_a = get_thread_backend(thread_id_a)
         backend_b = get_thread_backend(thread_id_b)
         
-        # userA 写入共享文件
-        result_a = backend_a.execute("echo 'userA secret' > /user_shared/a.txt")
+        result_a = backend_a.execute("echo 'userA secret' > /workspace/a.txt")
         assert result_a.exit_code == 0
         
-        # userB 写入共享文件
-        result_b = backend_b.execute("echo 'userB secret' > /user_shared/b.txt")
+        result_b = backend_b.execute("echo 'userB secret' > /workspace/b.txt")
         assert result_b.exit_code == 0
         
-        # userB 不应该看到userA的文件
-        result_b_read = backend_b.execute("cat /user_shared/a.txt 2>&1 || echo 'FILE_NOT_FOUND'")
+        result_b_read = backend_b.execute("cat /workspace/a.txt 2>&1 || echo 'FILE_NOT_FOUND'")
         assert "userA secret" not in result_b_read.output, f"userB should not see userA's file: {result_b_read.output}"
         
-        # userA 不应该看到userB的文件
-        result_a_read = backend_a.execute("cat /user_shared/b.txt 2>&1 || echo 'FILE_NOT_FOUND'")
+        result_a_read = backend_a.execute("cat /workspace/b.txt 2>&1 || echo 'FILE_NOT_FOUND'")
         assert "userB secret" not in result_a_read.output, f"userA should not see userB's file: {result_a_read.output}"
         
-        print("[PASS] test_user_shared_isolation")
+        print("[PASS] test_workspace_isolation")
         
     finally:
         destroy_thread_backend(thread_id_a)
@@ -174,8 +168,8 @@ if __name__ == "__main__":
     test_destroy_session()
     test_destroy_idempotent()
     test_file_persistence()
-    test_user_shared_directory()
-    test_user_shared_isolation()
+    test_workspace_shared()
+    test_workspace_isolation()
     
     print("=" * 50)
     print("All tests passed!")
