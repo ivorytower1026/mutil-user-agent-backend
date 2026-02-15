@@ -56,7 +56,6 @@ async def webdav_handler(
             from fastapi import HTTPException
             raise HTTPException(status_code=400, detail="Destination header required")
         dst_path = destination.split("/dav/")[-1] if "/dav/" in destination else destination
-        dst_path = dst_path.lstrip(f"{user_id}/")
         return await webdav.move(user_id, path, dst_path)
     
     return Response(status_code=405)

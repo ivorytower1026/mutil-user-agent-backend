@@ -163,19 +163,19 @@ class AgentManager:
                         if "input" in value and "output" not in value:
                             return self._make_sse("tool_start", {
                                 "tool": key,
-                                "input": self._sanitize_for_json(value.get("input", {}))
+                                "status": "running"
                             })
                         elif "output" in value:
                             return self._make_sse("tool_end", {
                                 "tool": key,
-                                "output": self._sanitize_for_json(value.get("output", {}))
+                                "status": "completed"
                             })
                     elif isinstance(value, list):
                         for item in value:
                             if hasattr(item, 'name') and hasattr(item, 'args'):
                                 return self._make_sse("tool_start", {
                                     "tool": getattr(item, 'name', key),
-                                    "input": self._sanitize_for_json(getattr(item, 'args', {}))
+                                    "status": "running"
                                 })
         return None
 
@@ -254,21 +254,12 @@ class AgentManager:
                     return None
 
             elif mode == "updates":
-                # 处理状态更新
-                if isinstance(data, dict):
-                    if "__interrupt__" in data:
-                        # 中断信息
-                        interrupt_info = data["__interrupt__"]
-                        if interrupt_info:
-                            return self._make_sse("interrupt", {
-                                "info": str(interrupt_info)
-                            })
-
-                    # 其他状态更新（节点状态等）
-                    filtered_data = {k: v for k, v in data.items() 
-                                   if k not in ["messages", "__interrupt__"] and v is not None and v != ""}
-                    if filtered_data:
-                        return self._make_sse("update", {"data": self._sanitize_for_json(filtered_data)})
+                if isinstance(data, dict) and "__interrupt__" in data:
+                    interrupt_info = data["__interrupt__"]
+                    if interrupt_info:
+                        return self._make_sse("interrupt", {
+                            "info": str(interrupt_info)
+                        })
 
         return None
 
@@ -323,7 +314,6 @@ class AgentManager:
             "tool_start": "tool/start",
             "tool_end": "tool/end",
             "interrupt": "interrupt",
-            "update": "updates",
             "structured": "structured",
             "error": "error",
             "done": "end",

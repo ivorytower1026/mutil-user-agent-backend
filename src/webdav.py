@@ -2,6 +2,7 @@
 from pathlib import Path
 from datetime import datetime
 from xml.etree import ElementTree as ET
+from urllib.parse import quote, unquote
 import shutil
 
 from fastapi import HTTPException
@@ -187,12 +188,15 @@ class WebDAVHandler:
                 while chunk := f.read(64 * 1024):
                     yield chunk
         
+        filename_ascii = target.name.encode('ascii', 'replace').decode('ascii')
+        filename_utf8 = quote(target.name, safe='')
+        
         return StreamingResponse(
             iterfile(),
             media_type="application/octet-stream",
             headers={
                 "ETag": self._etag(target),
-                "Content-Disposition": f'attachment; filename="{target.name}"'
+                "Content-Disposition": f"attachment; filename=\"{filename_ascii}\"; filename*=UTF-8''{filename_utf8}"
             }
         )
     
@@ -257,6 +261,7 @@ class WebDAVHandler:
         Returns:
             204 No Content
         """
+        path = unquote(path)
         target = self._user_path(user_id, path)
         if not target.exists():
             raise HTTPException(status_code=404, detail="Not found")
