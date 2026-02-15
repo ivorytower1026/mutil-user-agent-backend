@@ -4,7 +4,7 @@ import os
 import uuid
 from typing import Any, AsyncIterator
 
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.runnables import RunnableConfig
 from deepagents import create_deep_agent
 from langgraph.types import Command
@@ -241,7 +241,7 @@ class AgentManager:
                 # 处理消息流 - data 可能是 LLM token 或 metadata
                 if isinstance(data, tuple) and len(data) == 2:
                     token, metadata = data
-                    if token:
+                    if token and isinstance(token, AIMessage) :
                         if isinstance(token, str):
                             return self._make_sse("content", {"content": token})
                         elif hasattr(token, "content"):
@@ -397,8 +397,8 @@ class AgentManager:
                     role = "user"
                 elif msg_type == "ai":
                     role = "assistant"
-                elif msg_type == "tool":
-                    role = "tool"
+                # elif msg_type == "tool":
+                #     role = "tool"
                 elif msg_type == "system":
                     role = "system"
             
