@@ -146,7 +146,7 @@ class AgentManager:
         if stream_mode == "messages":
             if isinstance(data, tuple) and len(data) == 2:
                 msg, metadata = data
-                if hasattr(msg, "content") and msg.content:
+                if hasattr(msg, "content") and msg.content and isinstance(msg,AIMessage):
                     return self._make_sse("content", {"content": msg.content})
         
         elif stream_mode == "updates":
