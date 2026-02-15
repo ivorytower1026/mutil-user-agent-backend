@@ -261,7 +261,6 @@ class WebDAVHandler:
         Returns:
             204 No Content
         """
-        path = unquote(path)
         target = self._user_path(user_id, path)
         if not target.exists():
             raise HTTPException(status_code=404, detail="Not found")
