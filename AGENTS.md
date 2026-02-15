@@ -10,21 +10,22 @@ uv sync
 # Start development server (auto-reload on file changes)
 uv run python main.py
 
-# Run all tests with automatic server management
-run_tests.bat
-
-# Run tests manually
-uv run python tests/test_v0_1_1.py
-uv run python tests/test_mvp.py
+# Or use uvicorn directly
+uv run uvicorn main:app --host 0.0.0.0 --port 8002 --reload
 ```
 
-### Running Single Tests
-To run a single test function:
-1. Edit the test file and comment out other test functions
-2. Or create a new test script that imports and runs the specific function
-3. Run with: `uv run python tests/test_v0_1_1.py`
+### Running Tests
+```bash
+# Run all tests (requires server running on settings.PORT)
+uv run python tests/test_v0_1_1.py
+uv run python tests/test_mvp.py
+uv run python tests/test_v0_1_5_webdav.py
 
-Tests automatically start the FastAPI server on port 8002 and shut it down when complete.
+# Run single test function: edit the test file to comment out other tests
+# Or create a new script that imports and runs the specific function
+```
+
+Tests automatically wait for server on `settings.PORT` and clean up when done.
 
 ## Project Architecture
 
@@ -37,19 +38,23 @@ Tests automatically start the FastAPI server on port 8002 and shut it down when 
 ### Directory Structure
 ```
 backend/
-├── main.py              # FastAPI app entry point
-├── pyproject.toml       # Dependencies and config
+├── main.py              # FastAPI app entry point, lifespan setup
+├── pyproject.toml       # Dependencies (uv package manager)
 ├── src/                 # Core business logic
-│   ├── config.py        # Settings and LLM configuration
-│   ├── agent_manager.py # Agent lifecycle management
-│   ├── docker_sandbox.py # Docker container management
-│   ├── auth.py          # JWT authentication
-│   ├── database.py      # SQLAlchemy models
-│   └── utils/           # Utilities (langfuse, etc.)
+│   ├── config.py        # Settings and LLM instances (big_llm, flash_llm)
+│   ├── agent_manager.py # Agent lifecycle, streaming, SSE formatting
+│   ├── docker_sandbox.py # Docker container management, Windows path handling
+│   ├── auth.py          # JWT authentication, password hashing (argon2)
+│   ├── database.py      # SQLAlchemy models (User, Thread)
+│   ├── webdav.py        # WebDAV handler implementation
+│   ├── chunk_upload.py  # Large file chunked upload manager
+│   └── utils/           # Utilities (langfuse, get_root_path)
 ├── api/                 # API layer
-│   ├── server.py        # Route handlers
-│   ├── auth.py          # Auth endpoints
-│   └── models.py        # Pydantic schemas
+│   ├── server.py        # Agent route handlers (/api/*)
+│   ├── auth.py          # Auth endpoints (/api/auth/*)
+│   ├── files.py         # Chunk upload endpoints (/api/files/*)
+│   ├── webdav.py        # WebDAV routes (/dav/*)
+│   └── models.py        # Pydantic request/response schemas
 └── tests/               # Integration tests
 ```
 
@@ -68,44 +73,45 @@ backend/
 
 ### Naming Conventions
 - **Functions/Variables**: snake_case (e.g., `get_current_user`, `thread_id`)
-- **Classes**: PascalCase (e.g., `AgentManager`, `Settings`)
+- **Classes**: PascalCase (e.g., `AgentManager`, `DockerSandboxBackend`)
 - **Constants**: UPPER_SNAKE_CASE (e.g., `SECRET_KEY`, `ALGORITHM`)
 - **Private methods**: leading underscore (e.g., `_format_event`, `_get_thread_id`)
+- **Pydantic models**: PascalCase with descriptive suffixes (e.g., `ChatRequest`, `ThreadStatus`)
 
 ### Async/Await Patterns
 - All API endpoints use `async def`
-- Database operations use async patterns where possible
 - Streaming responses use `AsyncGenerator[str, None]`
 - Always use `async for` with agent streaming
+- Use `asyncio.create_task()` for parallel execution (e.g., title generation)
 
 ### Error Handling
 - API errors: Raise `HTTPException` with appropriate status codes
   - 401: Unauthorized (invalid token)
   - 403: Forbidden (wrong user/thread)
   - 400: Bad request (invalid input)
-  - 404: Not found (thread doesn't exist)
+  - 404: Not found (thread/upload doesn't exist)
 - Agent errors: Catch `Exception`, log with traceback, return SSE error event
 - Always include `finally` blocks for cleanup (e.g., sending "done" SSE event)
 
 ### Docstrings
-- Use Google-style or simple descriptive docstrings
+- Use simple descriptive docstrings at function start
 - Include Args and Returns for public methods
-- Keep docstrings concise and focused on user-facing behavior
+- Keep docstrings concise and focused on behavior
 
 ### Configuration
 - All config in `src/config.py` using Pydantic Settings
 - Load from environment variables via `.env` file
 - Use `@field_validator` for type conversions (e.g., string to int)
-- LLM instance is global: `llm` from `src.config`
+- LLM instances: `big_llm` (glm-5), `flash_llm` (qwen3-vl) from `src.config`
 
 ### Database
 - Use SQLAlchemy ORM with declarative base
-- Models in `src/database.py`
-- Use `SessionLocal` sessionmaker with context manager (`get_db()`)
+- Models in `src/database.py` (User, Thread)
+- Use `SessionLocal` sessionmaker with `with` statement (context manager)
 - Create tables on startup via `create_tables()`
 
 ### Authentication
-- JWT tokens with 24-hour expiration
+- JWT tokens with configurable expiration (`ACCESS_TOKEN_EXPIRE_HOURS`)
 - Password hashing with argon2 (via passlib)
 - Token extraction via `OAuth2PasswordBearer`
 - User ID extracted from JWT payload (`sub` field)
@@ -113,24 +119,31 @@ backend/
 
 ### Streaming and SSE
 - Use `StreamingResponse` with `AsyncGenerator` for agent responses
-- Format SSE events as: `data: {json}\n\n`
-- Event types: `content`, `tool_start`, `tool_end`, `interrupt`, `error`, `done`
-- Always send final "done" event in finally block
+- Format SSE events as: `event: {event_name}\ndata: {json}\n\n`
+- Event names: `messages/partial`, `tool/start`, `tool/end`, `interrupt`, `error`, `end`, `title_updated`
+- Always send final "end" event in finally block
 - Handle UTF-8 properly with `ensure_ascii=False` in json.dumps
 
 ### Docker Sandbox
-- Each thread gets isolated container
-- Workspace mounted at `/workspace` inside container
-- Shared dir mounted at `/shared` (read-only)
-- Container created on first use, reused for thread lifetime
+- Each user gets isolated workspace: `workspaces/{user_id}/`
+- All threads of same user share workspace directory
+- Container created on first execute(), reused for thread lifetime
+- Mounts: `/workspace` (rw), `/shared` (ro), `/skills` (ro)
+- Windows path conversion: `D:\path` -> `/d/path` via `_to_docker_path()`
 - Python 3.13-slim image by default
+
+### File Operations
+- WebDAV: PROPFIND, GET, PUT, MKCOL, DELETE, MOVE at `/dav/{path}`
+- Chunk upload: init -> upload chunks -> complete flow at `/api/files/*`
+- Chunk size: 10MB, session expires after 24 hours
 
 ### Testing
 - Integration tests using `requests` library
-- Tests follow pattern: setup → action → assert
+- Tests follow pattern: setup -> action -> assert
 - Print progress with `[N/total] Test name...`
 - Use `assert` statements with helpful messages
 - Return values from test functions for chaining
+- Wait for server startup with `wait_for_server()` helper
 
 ### Environment Variables
 Required in `.env`:
@@ -138,21 +151,20 @@ Required in `.env`:
 - `ZHIPUAI_API_BASE`: LLM endpoint URL
 - `DATABASE_URL`: PostgreSQL connection string
 - `SECRET_KEY`: JWT signing key
-
-Optional (with defaults in code):
-- `WORKSPACE_ROOT`: `./workspaces`
-- `SHARED_DIR`: `./shared`
-- `DOCKER_IMAGE`: `python:3.13-slim`
-- `ACCESS_TOKEN_EXPIRE_HOURS`: `24`
+- `IS_LANGFUSE`: Enable Langfuse monitoring (0/1)
+- `LANGFUSE_SECRET_KEY`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_BASE_URL`
+- `WORKSPACE_ROOT`, `SHARED_DIR`, `DOCKER_IMAGE`
+- `PORT`: Server port
+- `OPENAI_API_BASE_8001`, `OPENAI_API_BASE_8002`: VLLM endpoints
+- `MODELSCOPE_SDK_TOKEN`, `MODELSCOPE_URL`: ModelScope config
 
 ### Language and Comments
 - Code comments in English
-- Docstrings can be bilingual (English/Chinese) for clarity
-- Use `# DEBUG:` or `[DEBUG]` for temporary debugging logs
-- Print statements prefixed with context: `[AgentManager]`, `[ERROR]`, etc.
+- Print statements prefixed with context: `[AgentManager]`, `[DockerSandbox]`, `[ERROR]`
+- Use `[DEBUG]` prefix for temporary debugging logs
 
 ### LangGraph Integration
-- Use `PostgresSaver` with connection pool for persistence
+- Use `AsyncPostgresSaver` with connection pool for persistence
 - Interrupt on sensitive operations: `execute`, `write_file`
 - Thread ID in `configurable.thread_id`
 - System prompt: guide agent to work in `/workspace` directory
