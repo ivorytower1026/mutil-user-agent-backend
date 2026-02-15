@@ -82,7 +82,7 @@ class WebDAVHandler:
         if target.is_file():
             self._add_response_element(multistatus, user_id, target)
         elif target.is_dir():
-            self._add_response_element(multistatus, user_id, target, is_dir=True)
+            # self._add_response_element(multistatus, user_id, target, is_dir=True)
             if depth >= 1:
                 for item in sorted(target.iterdir()):
                     is_dir = item.is_dir()

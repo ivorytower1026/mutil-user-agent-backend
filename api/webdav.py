@@ -13,7 +13,7 @@ webdav = WebDAVHandler(settings.WORKSPACE_ROOT)
 @router.api_route(
     "/{path:path}",
     methods=["PROPFIND", "GET", "PUT", "MKCOL", "DELETE", "MOVE"],
-    include_in_schema=False
+    include_in_schema=  False
 )
 async def webdav_handler(
     request: Request,

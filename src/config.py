@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     OPENAI_API_BASE_8001: str
     OPENAI_API_BASE_8002: str
 
+    MODELSCOPE_SDK_TOKEN: str
+    MODELSCOPE_URL: str
+
     @field_validator("IS_LANGFUSE", mode="before")
     def parse_is_langfuse(cls, v):
         return int(v)
@@ -95,5 +98,13 @@ llm_minimax_m2_1 = ChatOpenAI(
     max_tokens=1024,
 )
 
-big_llm = llm_glm_4_7
-flash_llm = llm_qwen3_vl_30b_a3b_instruct
+llm_modelscope_qwen3_vl_30b_a3b_instruct = ChatOpenAI(
+    model="Qwen/Qwen3-VL-30B-A3B-Instruct",
+    base_url=settings.MODELSCOPE_URL,
+    api_key=settings.MODELSCOPE_SDK_TOKEN,
+    temperature=0.7,
+    max_tokens=1024,
+)
+
+big_llm = llm_glm_5
+flash_llm = llm_modelscope_qwen3_vl_30b_a3b_instruct
