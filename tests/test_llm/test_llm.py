@@ -21,8 +21,7 @@ llm_minimax_m2_1 = ChatOpenAI(
 )
 
 messages = [
-    SystemMessage(content="你是一个资深Python工程师"),
-    HumanMessage(content="实现一个LRU缓存")
+    HumanMessage(content="你好")
 ]
 
 resp = llm_minimax_m2_1.invoke(messages)

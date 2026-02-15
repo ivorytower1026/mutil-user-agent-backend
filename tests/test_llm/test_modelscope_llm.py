@@ -12,8 +12,7 @@ llm_modelscope_qwen3_vl_30b_a3b_instruct = ChatOpenAI(
 )
 
 messages = [
-    SystemMessage(content="你是一个资深Python工程师"),
-    HumanMessage(content="实现一个LRU缓存")
+    HumanMessage(content="你好")
 ]
 
 resp = llm_modelscope_qwen3_vl_30b_a3b_instruct.invoke(messages)
