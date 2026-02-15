@@ -399,8 +399,8 @@ class AgentManager:
                     role = "assistant"
                 # elif msg_type == "tool":
                 #     role = "tool"
-                elif msg_type == "system":
-                    role = "system"
+                # elif msg_type == "system":
+                #     role = "system"
             
             if hasattr(msg, "content"):
                 content = str(msg.content) if msg.content else ""
