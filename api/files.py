@@ -1,5 +1,7 @@
 """File operation API routes for chunk upload."""
+from datetime import datetime
 from pathlib import Path
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Form
 
@@ -12,6 +14,8 @@ from api.models import (
     UploadCompleteRequest,
     FileInfo
 )
+
+MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50MB
 
 router = APIRouter(prefix="/files", tags=["files"])
 upload_manager = ChunkUploadManager(settings.WORKSPACE_ROOT)
@@ -141,3 +145,45 @@ async def get_upload_progress(
         return progress
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post("/upload-simple")
+async def upload_simple(
+    file: UploadFile = File(...),
+    user_id: str = Depends(get_current_user)
+):
+    """Simple file upload for chat context.
+    
+    Args:
+        file: File to upload (max 50MB)
+        user_id: Authenticated user ID
+        
+    Returns:
+        Upload result with path, filename, and size
+    """
+    content = await file.read()
+    
+    if len(content) > MAX_UPLOAD_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail="文件超过 50MB，请使用 WebDAV 上传到工作目录"
+        )
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    uid = uuid.uuid4().hex[:8]
+    ext = Path(file.filename).suffix if file.filename else ""
+    new_filename = f"{timestamp}_{uid}{ext}"
+    
+    user_dir = Path(settings.WORKSPACE_ROOT) / user_id
+    uploads_dir = user_dir / "uploads"
+    uploads_dir.mkdir(parents=True, exist_ok=True)
+    
+    file_path = uploads_dir / new_filename
+    file_path.write_bytes(content)
+    
+    return {
+        "success": True,
+        "path": f"/workspace/uploads/{new_filename}",
+        "filename": file.filename,
+        "size": len(content)
+    }

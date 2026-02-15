@@ -4,7 +4,7 @@ import os
 import uuid
 from typing import Any, AsyncIterator
 
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 from deepagents import create_deep_agent
 from langgraph.types import Command
@@ -70,7 +70,7 @@ class AgentManager:
         
         return thread_id
 
-    async def stream_chat(self, thread_id: str, message: str) -> AsyncIterator[str]:
+    async def stream_chat(self, thread_id: str, message: str, files: list[str] | None = None) -> AsyncIterator[str]:
         """Stream chat with parallel title generation."""
         queue: asyncio.Queue[str | None] = asyncio.Queue()
         pending = {'count': 2}
@@ -84,8 +84,16 @@ class AgentManager:
                 handler, _ = init_langfuse()
                 config = {"configurable": {"thread_id": thread_id}, "callbacks": [handler]}
                 
+                messages = []
+                if files:
+                    file_list = "\n".join(f"- {path}" for path in files)
+                    messages.append(SystemMessage(
+                        content=f"当前对话中用户已上传的文件：\n{file_list}"
+                    ))
+                messages.append(HumanMessage(content=message))
+                
                 async for stream_mode, data in self.compiled_agent.astream(
-                    {"messages": [HumanMessage(content=message)]},
+                    {"messages": messages},
                     config=config,
                     stream_mode=["messages", "updates"],
                 ):
@@ -393,17 +401,15 @@ class AgentManager:
             
             if hasattr(msg, "type"):
                 msg_type = msg.type
+                content = str(msg.content) if hasattr(msg, "content") and msg.content else ""
+                
+                if msg_type == "system":
+                    continue
+                
                 if msg_type == "human":
                     role = "user"
                 elif msg_type == "ai":
                     role = "assistant"
-                # elif msg_type == "tool":
-                #     role = "tool"
-                # elif msg_type == "system":
-                #     role = "system"
-            
-            if hasattr(msg, "content"):
-                content = str(msg.content) if msg.content else ""
             
             if role != "unknown" and content:
                 formatted_messages.append({

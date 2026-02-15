@@ -5,6 +5,7 @@ from typing import Literal, Optional
 
 class ChatRequest(BaseModel):
     message: str
+    files: list[str] | None = None
 
 
 class CreateSessionResponse(BaseModel):
