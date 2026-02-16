@@ -1,11 +1,14 @@
 """Authentication API endpoints."""
+import os
 import uuid
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from src.auth import verify_password, get_password_hash, create_access_token
+from src.config import settings
 from src.database import get_db, User
 
 router = APIRouter()
@@ -52,6 +55,13 @@ async def register(user: UserRegister, db: Session = Depends(get_db)):
     
     # Create new user
     user_id = str(uuid.uuid4())
+    
+    workspace_dir = os.path.join(
+        Path(settings.WORKSPACE_ROOT).expanduser().absolute(),
+        user_id
+    )
+    os.makedirs(workspace_dir, exist_ok=True)
+    
     db_user = User(
         user_id=user_id,
         username=user.username,

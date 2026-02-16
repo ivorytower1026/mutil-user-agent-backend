@@ -50,7 +50,9 @@ class AgentManager:
                     "description": "Agent 请求用户回答问题"
                 }
             },
-            system_prompt="用户的工作目录在/workspace中，若无明确要求，请在/workspace目录【及子目录】下执行操作",
+            system_prompt="""
+            用户的工作目录在/workspace中，若无明确要求，请在/workspace目录【及子目录】下执行操作,
+            当你不明确用户需求时，可以调用提问工具向用户提问，这个提问工具最多调用两次""",
         )
         print("[AgentManager] Initialized with AsyncPostgresSaver")
 
