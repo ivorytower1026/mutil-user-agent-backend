@@ -74,17 +74,24 @@ async def stream_resume_interrupt(
 
     Requires authentication. User can only resume their own threads.
     """
-    # Verify thread ownership
     verify_thread_permission(user_id, thread_id)
 
-    if request.action not in ["continue", "cancel"]:
+    if request.action not in ["continue", "cancel", "answer"]:
         raise HTTPException(
             status_code=400,
-            detail="Action must be 'continue' or 'cancel'"
+            detail="Action must be 'continue', 'cancel' or 'answer'"
+        )
+    
+    if request.action == "answer" and not request.answers:
+        raise HTTPException(
+            status_code=400,
+            detail="answers is required when action is 'answer'"
         )
 
     async def event_generator() -> AsyncGenerator[str, None]:
-        async for chunk in agent_manager.stream_resume_interrupt(thread_id, request.action):
+        async for chunk in agent_manager.stream_resume_interrupt(
+            thread_id, request.action, request.answers
+        ):
             yield chunk
 
     return StreamingResponse(

@@ -16,6 +16,7 @@ from src.utils.langfuse_monitor import init_langfuse
 
 from psycopg_pool import AsyncConnectionPool
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from langchain_core.tools import BaseTool
 
 class AgentManager:
     def __init__(self):
@@ -40,7 +41,15 @@ class AgentManager:
                 self._get_thread_id(runtime) or "default"
             ),
             checkpointer=self.checkpointer,
-            interrupt_on={"execute": True, "write_file": True},
+            tools=[self._create_ask_user_tool()],
+            interrupt_on={
+                "execute": True,
+                "write_file": True,
+                "ask_user": {
+                    "allowed_decisions": ["edit"],
+                    "description": "Agent 请求用户回答问题"
+                }
+            },
             system_prompt="用户的工作目录在/workspace中，若无明确要求，请在/workspace目录【及子目录】下执行操作",
         )
         print("[AgentManager] Initialized with AsyncPostgresSaver")
@@ -51,6 +60,50 @@ class AgentManager:
             configurable = config.get("configurable", {})
             return configurable.get("thread_id")
         return None
+
+    def _format_interrupt_info(self, request: dict) -> str:
+        tool_name = request.get("name", "Unknown")
+        args = request.get("args", {})
+        
+        if tool_name == "execute":
+            command = args.get("command", "")
+            cmd_preview = command[:30] + "..." if len(command) > 30 else command
+            return f"正在执行命令: {cmd_preview}"
+        elif tool_name == "write_file":
+            file_path = args.get("file_path", "")
+            file_name = os.path.basename(file_path) if file_path else "文件"
+            return f"正在写入文件: {file_name}"
+        elif tool_name == "ask_user":
+            questions = args.get("questions", [])
+            return f"Agent 提出了 {len(questions)} 个问题"
+        else:
+            return "正在执行操作"
+
+    def _get_task_display_name(self, tool_name: str) -> str:
+        name_map = {
+            "execute": "执行命令",
+            "write_file": "写入文件",
+            "ask_user": "用户问答",
+        }
+        return name_map.get(tool_name, tool_name)
+
+    def _create_ask_user_tool(self) -> BaseTool:
+        from langchain_core.tools import StructuredTool
+        from typing import Annotated
+        
+        def ask_user(
+            questions: Annotated[list[dict], "问题列表，每个问题包含 question 和 options"],
+            answers: Annotated[list[str] | None, "用户答案（恢复时注入）"] = None,
+        ) -> str:
+            if answers:
+                return json.dumps(answers, ensure_ascii=False)
+            return "Waiting for user response..."
+        
+        return StructuredTool.from_function(
+            name="ask_user",
+            description="向用户提问并等待回答。问题格式: [{question: string, options: [{label: string, value: string, allow_custom?: boolean}]}]",
+            func=ask_user,
+        )
 
     async def create_session(self, user_id: str) -> str:
         """Create a new session for a user.
@@ -159,9 +212,10 @@ class AgentManager:
                         if requests:
                             request = requests[0]
                             return self._make_sse("interrupt", {
-                                "info": request.get("description", ""),
-                                "taskName": request.get("name", "Unknown"),
-                                "data": self._sanitize_for_json(interrupt.value)
+                                "info": self._format_interrupt_info(request),
+                                "taskName": self._get_task_display_name(request.get("name", "Unknown")),
+                                "data": self._sanitize_for_json(interrupt.value),
+                                "questions": request.get("args", {}).get("questions"),
                             })
                 
                 for key, value in data.items():
@@ -187,15 +241,33 @@ class AgentManager:
                                 })
         return None
 
-    async def stream_resume_interrupt(self, thread_id: str, action: str) -> AsyncIterator[str]:
-        if action not in ["continue", "cancel"]:
-            raise ValueError("Action must be 'continue' or 'cancel'")
+    async def stream_resume_interrupt(
+        self, 
+        thread_id: str, 
+        action: str,
+        answers: list[str] | None = None
+    ) -> AsyncIterator[str]:
+        if action not in ["continue", "cancel", "answer"]:
+            raise ValueError("Action must be 'continue', 'cancel' or 'answer'")
 
         handler, _ = init_langfuse()
         config: RunnableConfig = {"configurable": {"thread_id": thread_id}, "callbacks": [handler]}
 
         if action == "cancel":
             resume_command = Command(resume={"decisions": [{"type": "reject"}]})
+        elif action == "answer" and answers:
+            snapshot = await self.compiled_agent.aget_state(config)
+            original_args = self._extract_interrupt_args(snapshot, "ask_user")
+            
+            resume_command = Command(resume={
+                "decisions": [{
+                    "type": "edit",
+                    "edited_action": {
+                        "name": "ask_user",
+                        "args": {**original_args, "answers": answers}
+                    }
+                }]
+            })
         else:
             resume_command = Command(resume={"decisions": [{"type": "approve"}]})
 
@@ -229,6 +301,18 @@ class AgentManager:
             # Send done event at the end
             print(f"[DEBUG] Sending done event for action: {action}")
             yield self._make_sse("done", {"action": action})
+
+    def _extract_interrupt_args(self, snapshot: Any, tool_name: str) -> dict:
+        if snapshot.tasks:
+            for task in snapshot.tasks:
+                if hasattr(task, "interrupts") and task.interrupts:
+                    for interrupt in task.interrupts:
+                        if hasattr(interrupt, "value"):
+                            requests = interrupt.value.get("action_requests", [])
+                            for req in requests:
+                                if req.get("name") == tool_name:
+                                    return req.get("args", {})
+        return {}
 
     def _format_astream_chunk(self, chunk: Any) -> str | None:
         print(f"[DEBUG] _format_astream_chunk: type={type(chunk)}, len={len(chunk) if hasattr(chunk, '__len__') else 'N/A'}")

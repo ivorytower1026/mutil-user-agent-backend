@@ -14,6 +14,7 @@ class CreateSessionResponse(BaseModel):
 
 class ResumeRequest(BaseModel):
     action: str
+    answers: list[str] | None = None
 
 
 class ResumeResponse(BaseModel):
