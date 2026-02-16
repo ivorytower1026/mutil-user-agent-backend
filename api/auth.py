@@ -1,4 +1,6 @@
 """Authentication API endpoints."""
+import uuid
+
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -49,7 +51,7 @@ async def register(user: UserRegister, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Username already registered")
     
     # Create new user
-    user_id = user.username  # Simple approach: user_id = username
+    user_id = str(uuid.uuid4())
     db_user = User(
         user_id=user_id,
         username=user.username,
