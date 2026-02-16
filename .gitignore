@@ -11,3 +11,4 @@ wheels/
 .idea
 logs/
 .env
+temp_images/
