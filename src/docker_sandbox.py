@@ -24,52 +24,66 @@ def _to_docker_path(path: str) -> str:
     return path_str
 
 
-_thread_backends = {}
+_user_backends = {}
 
 
 def get_thread_backend(thread_id: str) -> 'DockerSandboxBackend':
-    """Get or create a thread backend.
+    """Get or create a user-level backend.
     
-    Workspace directory structure: workspaces/{user_id}/
-    All threads of the same user share the same workspace directory.
+    All threads of the same user share the same container.
+    Workspace directory: workspaces/{user_id}/
     """
-    if thread_id not in _thread_backends:
-        user_id = thread_id.split('-')[0]
-        
+    user_id = thread_id.split('-')[0]
+    
+    if user_id not in _user_backends:
         workspace_dir = os.path.join(
             Path(settings.WORKSPACE_ROOT).expanduser().absolute(),
             user_id
         )
         os.makedirs(workspace_dir, exist_ok=True)
-        _thread_backends[thread_id] = DockerSandboxBackend(thread_id, workspace_dir)
-    return _thread_backends[thread_id]
+        _user_backends[user_id] = DockerSandboxBackend(user_id, workspace_dir)
+    
+    return _user_backends[user_id]
 
 
-def destroy_thread_backend(thread_id: str) -> bool:
-    """Destroy a thread backend and its container.
+def destroy_user_backend(user_id: str) -> bool:
+    """Destroy a user's backend and its container.
     
     Args:
-        thread_id: The thread ID to destroy
+        user_id: The user ID to destroy
         
     Returns:
         True if destroyed, False if not found
     """
-    if thread_id in _thread_backends:
-        _thread_backends[thread_id].destroy()
-        del _thread_backends[thread_id]
+    if user_id in _user_backends:
+        _user_backends[user_id].destroy()
+        del _user_backends[user_id]
         return True
     return False
 
 
+def destroy_thread_backend(thread_id: str) -> bool:
+    """Destroy a thread's container (compatibility wrapper).
+    
+    Args:
+        thread_id: The thread ID (will extract user_id)
+        
+    Returns:
+        True if destroyed, False if not found
+    """
+    user_id = thread_id.split('-')[0]
+    return destroy_user_backend(user_id)
+
+
 class DockerSandboxBackend(BaseSandbox):
-    """Docker-based sandbox backend with persistent container.
+    """Docker-based sandbox backend with user-level container sharing.
     
     Container is created on first execute() and reused for subsequent calls.
-    Must be explicitly destroyed via destroy() or destroy_thread_backend().
+    All threads of the same user share this container.
     """
     
-    def __init__(self, thread_id: str, workspace_dir: str):
-        self.thread_id = thread_id
+    def __init__(self, user_id: str, workspace_dir: str):
+        self.user_id = user_id
         self.workspace_dir = workspace_dir
         self.image = settings.DOCKER_IMAGE
         self.client = docker.from_env()
@@ -77,7 +91,7 @@ class DockerSandboxBackend(BaseSandbox):
 
     @property
     def id(self) -> str:
-        return self.thread_id
+        return self.user_id
 
     def _ensure_container(self) -> docker.models.containers.Container:
         """Ensure container exists and is running (lazy initialization).
@@ -88,7 +102,7 @@ class DockerSandboxBackend(BaseSandbox):
         if self._container is None:
             self._container = self._create_container()
             self._container.start()
-            print(f"[DockerSandbox] Created container for thread {self.thread_id}")
+            print(f"[DockerSandbox] Created container for user {self.user_id}")
         else:
             try:
                 self._container.reload()
@@ -157,7 +171,7 @@ class DockerSandboxBackend(BaseSandbox):
         if self._container is not None:
             try:
                 self._container.remove(force=True)
-                print(f"[DockerSandbox] Destroyed container for thread {self.thread_id}")
+                print(f"[DockerSandbox] Destroyed container for user {self.user_id}")
             except docker.errors.APIError as e:
                 print(f"[DockerSandbox] Warning: Failed to destroy container: {e}")
             finally:
