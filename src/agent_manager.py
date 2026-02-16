@@ -255,23 +255,40 @@ class AgentManager:
         handler, _ = init_langfuse()
         config: RunnableConfig = {"configurable": {"thread_id": thread_id}, "callbacks": [handler]}
 
-        if action == "cancel":
-            resume_command = Command(resume={"decisions": [{"type": "reject"}]})
-        elif action == "answer" and answers:
-            snapshot = await self.compiled_agent.aget_state(config)
-            original_args = self._extract_interrupt_args(snapshot, "ask_user")
-            
-            resume_command = Command(resume={
-                "decisions": [{
-                    "type": "edit",
-                    "edited_action": {
-                        "name": "ask_user",
-                        "args": {**original_args, "answers": answers}
-                    }
-                }]
-            })
+        snapshot = await self.compiled_agent.aget_state(config)
+        current_tool = self._extract_interrupt_tool_name(snapshot)
+        
+        if current_tool == "ask_user":
+            if action == "continue":
+                yield self._make_sse("error", {"message": "ask_user 工具只支持 'answer' 或 'cancel' 操作"})
+                yield self._make_sse("done", {"action": "error"})
+                return
+            if action == "cancel":
+                resume_command = Command(resume={"decisions": [{"type": "reject"}]})
+            else:
+                if not answers:
+                    yield self._make_sse("error", {"message": "answer 操作需要提供 answers 参数"})
+                    yield self._make_sse("done", {"action": "error"})
+                    return
+                original_args = self._extract_interrupt_args(snapshot, "ask_user")
+                resume_command = Command(resume={
+                    "decisions": [{
+                        "type": "edit",
+                        "edited_action": {
+                            "name": "ask_user",
+                            "args": {**original_args, "answers": answers}
+                        }
+                    }]
+                })
         else:
-            resume_command = Command(resume={"decisions": [{"type": "approve"}]})
+            if action == "cancel":
+                resume_command = Command(resume={"decisions": [{"type": "reject"}]})
+            elif action == "answer":
+                yield self._make_sse("error", {"message": "只有 ask_user 工具支持 'answer' 操作"})
+                yield self._make_sse("done", {"action": "error"})
+                return
+            else:
+                resume_command = Command(resume={"decisions": [{"type": "approve"}]})
 
         print(f"[DEBUG] stream_resume_interrupt: thread_id={thread_id}, action={action}")
         print(f"[DEBUG] resume_command={resume_command}")
@@ -315,6 +332,17 @@ class AgentManager:
                                 if req.get("name") == tool_name:
                                     return req.get("args", {})
         return {}
+
+    def _extract_interrupt_tool_name(self, snapshot: Any) -> str | None:
+        if snapshot.tasks:
+            for task in snapshot.tasks:
+                if hasattr(task, "interrupts") and task.interrupts:
+                    for interrupt in task.interrupts:
+                        if hasattr(interrupt, "value"):
+                            requests = interrupt.value.get("action_requests", [])
+                            if requests:
+                                return requests[0].get("name")
+        return None
 
     def _format_astream_chunk(self, chunk: Any) -> str | None:
         print(f"[DEBUG] _format_astream_chunk: type={type(chunk)}, len={len(chunk) if hasattr(chunk, '__len__') else 'N/A'}")
