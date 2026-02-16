@@ -33,7 +33,7 @@ def get_thread_backend(thread_id: str) -> 'DockerSandboxBackend':
     All threads of the same user share the same container.
     Workspace directory: workspaces/{user_id}/
     """
-    user_id = thread_id.split('-')[0]
+    user_id = thread_id[:36]
     
     if user_id not in _user_backends:
         workspace_dir = os.path.join(
@@ -71,7 +71,7 @@ def destroy_thread_backend(thread_id: str) -> bool:
     Returns:
         True if destroyed, False if not found
     """
-    user_id = thread_id.split('-')[0]
+    user_id = thread_id[:36]
     return destroy_user_backend(user_id)
 
 
