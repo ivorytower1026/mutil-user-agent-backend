@@ -377,11 +377,18 @@ class AgentManager:
 
             elif mode == "updates":
                 if isinstance(data, dict) and "__interrupt__" in data:
-                    interrupt_info = data["__interrupt__"]
-                    if interrupt_info:
-                        return self._make_sse("interrupt", {
-                            "info": str(interrupt_info)
-                        })
+                    interrupt_list = data["__interrupt__"]
+                    if interrupt_list:
+                        interrupt = interrupt_list[0]
+                        requests = interrupt.value.get("action_requests", [])
+                        if requests:
+                            request = requests[0]
+                            return self._make_sse("interrupt", {
+                                "info": self._format_interrupt_info(request),
+                                "taskName": self._get_task_display_name(request.get("name", "Unknown")),
+                                "data": self._sanitize_for_json(interrupt.value),
+                                "questions": request.get("args", {}).get("questions"),
+                            })
 
         return None
 
