@@ -54,6 +54,7 @@ class AgentManager:
             interrupt_on={
                 "execute": True,
                 "write_file": True,
+                "edit_file": True,
                 "ask_user": {
                     "allowed_decisions": ["edit"],
                     "description": "Agent 请求用户回答问题"
