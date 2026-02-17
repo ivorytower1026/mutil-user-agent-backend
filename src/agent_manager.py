@@ -59,9 +59,12 @@ class AgentManager:
                     "description": "Agent 请求用户回答问题"
                 }
             },
+            skills=[settings.CONTAINER_SKILLS_DIR],
             system_prompt="""
             用户的工作目录在/workspace中，若无明确要求，请在/workspace目录【及子目录】下执行操作,
-            当你不明确用户需求时，可以调用提问工具向用户提问(可以同时提多个问题)，这个提问工具最多调用两次""",
+            当你不明确用户需求时，可以调用提问工具向用户提问(可以同时提多个问题)，这个提问工具最多调用两次
+            有限尝试使用已有的skill完成任务
+            """,
         )
         
         self.interrupt_handler = InterruptHandler(self.compiled_agent, self.sse_formatter)
