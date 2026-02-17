@@ -115,139 +115,24 @@ class ChatRequest(BaseModel):
 
 ```python
 @router.post("/chat/{thread_id}")
-async def chat(
-    thread_id: str,
-    request: ChatRequest,
-    user_id: str = Depends(get_current_user)
-):
-    verify_thread_permission(user_id, thread_id)
-    
-    async def event_generator() -> AsyncGenerator[str, None]:
+async def chat(..., request: ChatRequest, ...):
+    async def event_generator():
         async for chunk in agent_manager.stream_chat(
-            thread_id, 
-            request.message, 
-            request.files,
-            request.mode  # 传递 mode
+            thread_id, request.message, request.files, request.mode
         ):
             yield chunk
-    
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
 ```
 
-### 2. 核心逻辑修改
+### 2. 工具类修改
 
-#### `src/agent_manager.py`
+#### `src/agent_utils/formatter.py` - 添加工具名称提取方法
 
 ```python
-from langgraph.types import Command
-
-class AgentManager:
+class StreamDataFormatter:
     # ... 现有代码 ...
     
-    async def stream_chat(
-        self, 
-        thread_id: str, 
-        message: str, 
-        files: list[str] | None = None,
-        mode: str = "build"  # 新增参数
-    ) -> AsyncIterator[str]:
-        queue: asyncio.Queue[str | None] = asyncio.Queue()
-        pending = {'count': 2}
-        
-        with SessionLocal() as db:
-            thread = db.query(Thread).filter(Thread.thread_id == thread_id).first()
-            need_title = thread and thread.title is None
-        
-        async def agent_task():
-            try:
-                max_iterations = 50  # 防止无限循环
-                iteration = 0
-                
-                while iteration < max_iterations:
-                    iteration += 1
-                    should_resume = False
-                    resume_command = None
-                    
-                    handler, _ = init_langfuse()
-                    config = {
-                        "configurable": {"thread_id": thread_id}, 
-                        "callbacks": [handler]
-                    }
-                    
-                    # 构建输入
-                    if iteration == 1:
-                        messages = []
-                        if files:
-                            file_list = "\n".join(f"- {path}" for path in files)
-                            messages.append(SystemMessage(
-                                content=f"当前对话中用户已上传的文件：\n{file_list}"
-                            ))
-                        messages.append(HumanMessage(content=message))
-                        input_data = {"messages": messages}
-                    else:
-                        input_data = resume_command
-                    
-                    async for stream_mode, data in self.compiled_agent.astream(
-                        input_data,
-                        config=config,
-                        stream_mode=["messages", "updates"],
-                    ):
-                        # 检测是否是 execute/write_file/edit_file 的 interrupt
-                        tool_name = self._extract_interrupt_tool_name(data)
-                        
-                        if tool_name in ["execute", "write_file", "edit_file"]:
-                            if mode == "build":
-                                # build 模式：自动批准
-                                should_resume = True
-                                resume_command = Command(
-                                    resume={"decisions": [{"type": "approve"}]}
-                                )
-                                break
-                            else:
-                                # plan 模式：自动拒绝并提示
-                                reject_cmd = Command(
-                                    resume={"decisions": [{"type": "reject"}]}
-                                )
-                                await self.compiled_agent.ainvoke(reject_cmd, config)
-                                await queue.put(self.sse_formatter.make_error_event(
-                                    "当前为思考模式，请切换到 build 模式执行操作"
-                                ))
-                                should_resume = False
-                                break
-                        else:
-                            # 正常处理（包括 ask_user 等其他 interrupt）
-                            formatted = self.stream_formatter.format_stream_data(
-                                stream_mode, data
-                            )
-                            if formatted:
-                                await queue.put(formatted)
-                    
-                    if not should_resume:
-                        break
-                        
-            except Exception as e:
-                logger.exception("Error in agent_task")
-                await queue.put(self.sse_formatter.make_error_event(str(e)))
-            finally:
-                pending['count'] -= 1
-                if pending['count'] == 0:
-                    await queue.put(None)
-        
-        # ... title_task 保持不变 ...
-        
-        asyncio.create_task(title_task())
-        asyncio.create_task(agent_task())
-        
-        while True:
-            item = await queue.get()
-            if item is None:
-                break
-            yield item
-        
-        yield self.sse_formatter.make_done_event()
-    
-    def _extract_interrupt_tool_name(self, data: Any) -> str | None:
-        """从 stream data 中提取 interrupt 的工具名称"""
+    def extract_interrupt_tool_name(self, data: Any) -> str | None:
+        """从 stream data 中提取 interrupt 的工具名称，非 interrupt 返回 None"""
         if not isinstance(data, dict) or "__interrupt__" not in data:
             return None
         
@@ -264,9 +149,101 @@ class AgentManager:
             return None
         
         requests = value.get("action_requests", [])
-        if requests:
-            return requests[0].get("name")
-        return None
+        return requests[0].get("name") if requests else None
+```
+
+### 3. 核心逻辑修改
+
+#### `src/agent_manager.py`
+
+```python
+from langgraph.types import Command
+
+AUTO_APPROVE_TOOLS = {"execute", "write_file", "edit_file"}
+
+class AgentManager:
+    # ... 现有代码 ...
+    
+    async def stream_chat(
+        self, 
+        thread_id: str, 
+        message: str, 
+        files: list[str] | None = None,
+        mode: str = "build"  # 新增
+    ) -> AsyncIterator[str]:
+        queue: asyncio.Queue[str | None] = asyncio.Queue()
+        pending = {'count': 2}
+        
+        with SessionLocal() as db:
+            thread = db.query(Thread).filter(Thread.thread_id == thread_id).first()
+            need_title = thread and thread.title is None
+        
+        async def agent_task():
+            try:
+                handler, _ = init_langfuse()
+                config = {"configurable": {"thread_id": thread_id}, "callbacks": [handler]}
+                
+                messages = []
+                if files:
+                    file_list = "\n".join(f"- {path}" for path in files)
+                    messages.append(SystemMessage(content=f"当前对话中用户已上传的文件：\n{file_list}"))
+                messages.append(HumanMessage(content=message))
+                
+                current_input = {"messages": messages}
+                
+                for _ in range(50):  # 防止无限循环
+                    auto_resume = False
+                    
+                    async for stream_mode, data in self.compiled_agent.astream(
+                        current_input, config=config, stream_mode=["messages", "updates"]
+                    ):
+                        tool_name = self.stream_formatter.extract_interrupt_tool_name(data)
+                        
+                        if tool_name in AUTO_APPROVE_TOOLS:
+                            if mode == "build":
+                                auto_resume = True
+                                break
+                            else:
+                                await self.compiled_agent.ainvoke(
+                                    Command(resume={"decisions": [{"type": "reject"}]}), config
+                                )
+                                await queue.put(self.sse_formatter.make_error_event(
+                                    "当前为思考模式，请切换到 build 模式执行操作"
+                                ))
+                                return
+                        else:
+                            formatted = self.stream_formatter.format_stream_data(stream_mode, data)
+                            if formatted:
+                                await queue.put(formatted)
+                    
+                    if auto_resume:
+                        current_input = Command(resume={"decisions": [{"type": "approve"}]})
+                    else:
+                        break
+                        
+            except Exception as e:
+                logger.exception("Error in agent_task")
+                await queue.put(self.sse_formatter.make_error_event(str(e)))
+            finally:
+                pending['count'] -= 1
+                if pending['count'] == 0:
+                    await queue.put(None)
+        
+        # title_task 保持不变...
+        async def title_task():
+            # ... 现有代码不变 ...
+            pass
+        
+        asyncio.create_task(title_task())
+        asyncio.create_task(agent_task())
+
+        while True:
+            item = await queue.get()
+            if item is None:
+                break
+            yield item
+        
+        yield self.sse_formatter.make_done_event()
 ```
 
 ## 文件修改清单
@@ -275,9 +252,10 @@ class AgentManager:
 |------|---------|---------|
 | `api/models.py` | `ChatRequest` 添加 `mode` 字段 | +2 |
 | `api/server.py` | 传递 `request.mode` 给 `stream_chat` | +1 |
-| `src/agent_manager.py` | 重构 `stream_chat`，添加自动处理逻辑 | +50 |
+| `src/agent_utils/formatter.py` | 添加 `extract_interrupt_tool_name` 方法 | +15 |
+| `src/agent_manager.py` | `stream_chat` 添加 mode 参数和自动处理逻辑 | +20 |
 
-**总计**：约 53 行新增/修改代码
+**总计**：约 38 行新增/修改代码
 
 ## 测试用例
 

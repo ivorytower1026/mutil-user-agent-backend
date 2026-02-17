@@ -6,6 +6,7 @@ from typing import Literal, Optional
 class ChatRequest(BaseModel):
     message: str
     files: list[str] | None = None
+    mode: Literal["plan", "build"] = "build"
 
 
 class CreateSessionResponse(BaseModel):

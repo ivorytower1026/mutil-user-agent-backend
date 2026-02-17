@@ -71,6 +71,25 @@ class StreamDataFormatter:
     def __init__(self, sse_formatter: SSEFormatter):
         self.sse = sse_formatter
 
+    def extract_interrupt_tool_name(self, data: Any) -> str | None:
+        if not isinstance(data, dict) or "__interrupt__" not in data:
+            return None
+        
+        interrupt_list = data.get("__interrupt__", [])
+        if not interrupt_list:
+            return None
+        
+        interrupt = interrupt_list[0]
+        if hasattr(interrupt, "value"):
+            value = interrupt.value
+        elif isinstance(interrupt, dict):
+            value = interrupt.get("value", {})
+        else:
+            return None
+        
+        requests = value.get("action_requests", [])
+        return requests[0].get("name") if requests else None
+
     def format_stream_data(self, mode: str, data: Any) -> str | None:
         if mode == "messages":
             return self._format_message(data)

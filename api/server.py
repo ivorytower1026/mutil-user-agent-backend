@@ -55,7 +55,9 @@ async def chat(
     verify_thread_permission(user_id, thread_id)
     
     async def event_generator() -> AsyncGenerator[str, None]:
-        async for chunk in agent_manager.stream_chat(thread_id, request.message, request.files):
+        async for chunk in agent_manager.stream_chat(
+            thread_id, request.message, request.files, request.mode
+        ):
             yield chunk
 
     return StreamingResponse(

@@ -16,12 +16,16 @@ from src.utils.langfuse_monitor import init_langfuse
 from psycopg_pool import AsyncConnectionPool
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
+from langgraph.types import Command
+
 from src.agent_utils.formatter import SSEFormatter, StreamDataFormatter
 from src.agent_utils.interrupt import InterruptHandler
 from src.agent_utils.session import SessionManager
 from src.agent_utils.types import InterruptAction
 
 logger = logging.getLogger(__name__)
+
+AUTO_APPROVE_TOOLS = {"execute", "write_file", "edit_file"}
 
 
 class AgentManager:
@@ -102,7 +106,8 @@ class AgentManager:
         self, 
         thread_id: str, 
         message: str, 
-        files: list[str] | None = None
+        files: list[str] | None = None,
+        mode: str = "build"
     ) -> AsyncIterator[str]:
         queue: asyncio.Queue[str | None] = asyncio.Queue()
         pending = {'count': 2}
@@ -122,16 +127,53 @@ class AgentManager:
                     messages.append(SystemMessage(
                         content=f"当前对话中用户已上传的文件：\n{file_list}"
                     ))
+                
+                if mode == "plan":
+                    messages.append(SystemMessage(
+                        content="""# Plan Mode
+
+当前为思考模式，你只能进行只读操作：
+- 禁止执行命令、写入文件、编辑文件
+- 只能观察、分析、规划
+- 可以向用户提问澄清需求
+
+请先制定计划，等用户切换到 build 模式后再执行操作。"""
+                    ))
+                
                 messages.append(HumanMessage(content=message))
                 
-                async for stream_mode, data in self.compiled_agent.astream(
-                    {"messages": messages},
-                    config=config,
-                    stream_mode=["messages", "updates"],
-                ):
-                    formatted = self.stream_formatter.format_stream_data(stream_mode, data)
-                    if formatted:
-                        await queue.put(formatted)
+                current_input = {"messages": messages}
+                
+                while True:
+                    auto_resume = False
+                    
+                    async for stream_mode, data in self.compiled_agent.astream(
+                        current_input, config=config, stream_mode=["messages", "updates"]
+                    ):
+                        tool_name = self.stream_formatter.extract_interrupt_tool_name(data)
+                        
+                        if tool_name in AUTO_APPROVE_TOOLS:
+                            if mode == "build":
+                                auto_resume = True
+                                break
+                            else:
+                                await self.compiled_agent.ainvoke(
+                                    Command(resume={"decisions": [{"type": "reject"}]}), config
+                                )
+                                await queue.put(self.sse_formatter.make_error_event(
+                                    "当前为思考模式，请切换到 build 模式执行操作"
+                                ))
+                                return
+                        else:
+                            formatted = self.stream_formatter.format_stream_data(stream_mode, data)
+                            if formatted:
+                                await queue.put(formatted)
+                    
+                    if auto_resume:
+                        current_input = Command(resume={"decisions": [{"type": "approve"}]})
+                    else:
+                        break
+                        
             except Exception as e:
                 logger.exception("Error in agent_task")
                 await queue.put(self.sse_formatter.make_error_event(str(e)))
