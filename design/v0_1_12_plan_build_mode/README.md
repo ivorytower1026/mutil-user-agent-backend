@@ -187,11 +187,23 @@ class AgentManager:
                 if files:
                     file_list = "\n".join(f"- {path}" for path in files)
                     messages.append(SystemMessage(content=f"当前对话中用户已上传的文件：\n{file_list}"))
-                messages.append(HumanMessage(content=message))
                 
+                if mode == "plan":
+                    messages.append(SystemMessage(
+                        content="""# Plan Mode
+
+当前为思考模式，你只能进行只读操作：
+- 禁止执行命令、写入文件、编辑文件
+- 只能观察、分析、规划
+- 可以向用户提问澄清需求
+
+请先制定计划，等用户切换到 build 模式后再执行操作。"""
+                    ))
+                
+                messages.append(HumanMessage(content=message))
                 current_input = {"messages": messages}
                 
-                for _ in range(50):  # 防止无限循环
+                while True:
                     auto_resume = False
                     
                     async for stream_mode, data in self.compiled_agent.astream(
