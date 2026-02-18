@@ -89,11 +89,35 @@ class SessionManager:
                 elif msg_type == "ai":
                     role = "assistant"
             
-            if role != "unknown" and content:
-                formatted_messages.append({
-                    "role": role,
-                    "content": content
-                })
+            if role == "unknown":
+                continue
+            
+            formatted_msg = {
+                "role": role,
+                "content": content
+            }
+            
+            if role == "assistant" and hasattr(msg, "tool_calls") and msg.tool_calls:
+                tool_calls_data = []
+                for tc in msg.tool_calls:
+                    tc_name = getattr(tc, "name", "") if hasattr(tc, "name") else tc.get("name", "")
+                    tc_args = getattr(tc, "args", {}) if hasattr(tc, "args") else tc.get("args", {})
+                    
+                    tool_call_entry = {
+                        "name": tc_name,
+                        "status": "completed"
+                    }
+                    
+                    if tc_name == "write_todos" and "todos" in tc_args:
+                        tool_call_entry["todos"] = tc_args["todos"]
+                    
+                    tool_calls_data.append(tool_call_entry)
+                
+                if tool_calls_data:
+                    formatted_msg["toolCalls"] = tool_calls_data
+            
+            if content or formatted_msg.get("toolCalls"):
+                formatted_messages.append(formatted_msg)
         
         return {
             "thread_id": thread_id,

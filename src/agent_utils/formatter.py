@@ -47,8 +47,11 @@ class SSEFormatter:
     def make_content_event(self, content: str) -> str:
         return self.format(InternalEventType.CONTENT, {"content": content})
 
-    def make_tool_start_event(self, tool: str) -> str:
-        return self.format(InternalEventType.TOOL_START, {"tool": tool, "status": "running"})
+    def make_tool_start_event(self, tool: str, todos: list[dict] | None = None) -> str:
+        data: dict = {"tool": tool, "status": "running"}
+        if todos:
+            data["todos"] = todos
+        return self.format(InternalEventType.TOOL_START, data)
 
     def make_tool_end_event(self, tool: str) -> str:
         return self.format(InternalEventType.TOOL_END, {"tool": tool, "status": "completed"})
@@ -65,9 +68,6 @@ class SSEFormatter:
 
     def make_title_updated_event(self, title: str) -> str:
         return self.format(InternalEventType.TITLE_UPDATED, {"title": title})
-
-    def make_todos_event(self, todos: list[dict]) -> str:
-        return self.format(InternalEventType.TODOS_UPDATED, {"todos": todos})
 
 
 class StreamDataFormatter:
@@ -179,6 +179,9 @@ class StreamDataFormatter:
             
             if isinstance(value, dict):
                 if "input" in value and "output" not in value:
+                    if key == "write_todos":
+                        todos = value.get("input", {}).get("todos", [])
+                        return self.sse.make_tool_start_event(key, todos)
                     return self.sse.make_tool_start_event(key)
                 elif "output" in value:
                     return self.sse.make_tool_end_event(key)
@@ -186,6 +189,9 @@ class StreamDataFormatter:
                 for item in value:
                     if hasattr(item, 'name') and hasattr(item, 'args'):
                         tool_name = getattr(item, 'name', key)
+                        if tool_name == "write_todos":
+                            todos = getattr(item, 'args', {}).get("todos", [])
+                            return self.sse.make_tool_start_event(tool_name, todos)
                         return self.sse.make_tool_start_event(tool_name)
         return None
 
