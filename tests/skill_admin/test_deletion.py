@@ -1,14 +1,15 @@
 """Skill deletion tests for Skill Admin API.
 
 Test cases:
-- DEL-01: Delete skill successfully
+- DEL-01: Delete skill successfully (with file storage verification)
 - DEL-02: Delete non-existent skill
 """
+import os
 import requests
 from .conftest import (
     BASE_URL, get_admin_token, make_admin_admin,
     setup_module, teardown_module, get_tmp_dir,
-    create_valid_skill_zip
+    create_valid_skill_zip, get_skill_from_db, verify_skill_file_storage
 )
 
 
@@ -42,6 +43,14 @@ def test_del_01_success():
     skill_id = upload_test_skill("delete-test-skill")
     assert skill_id is not None, "Failed to upload test skill"
     
+    success, errors = verify_skill_file_storage(skill_id, "delete-test-skill")
+    assert success, f"File should exist before deletion: {errors}"
+    print("  [PASS] File exists before deletion")
+    
+    skill = get_skill_from_db(skill_id)
+    skill_path = skill['skill_path']
+    print(f"  [INFO] Skill path: {skill_path}")
+    
     headers = get_admin_headers()
     response = requests.delete(
         f"{BASE_URL}/api/admin/skills/{skill_id}",
@@ -49,7 +58,7 @@ def test_del_01_success():
     )
     
     assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
-    print("  [PASS] Skill deleted successfully")
+    print("  [PASS] Skill deleted successfully (API)")
     
     response = requests.get(
         f"{BASE_URL}/api/admin/skills/{skill_id}",
@@ -57,6 +66,15 @@ def test_del_01_success():
     )
     assert response.status_code == 404, f"Skill should no longer exist, got {response.status_code}"
     print("  [PASS] Deleted skill returns 404 on GET")
+    
+    deleted_skill = get_skill_from_db(skill_id)
+    assert deleted_skill is None, "Skill should be removed from database"
+    print("  [PASS] Skill removed from database")
+    
+    if skill_path and os.path.exists(skill_path):
+        print(f"  [WARN] Skill directory still exists: {skill_path}")
+    else:
+        print("  [PASS] Skill directory removed from filesystem")
     
     return True
 

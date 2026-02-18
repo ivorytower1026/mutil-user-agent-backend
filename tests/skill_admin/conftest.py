@@ -1,11 +1,15 @@
-"""Shared fixtures and configuration for skill admin tests."""
+"""Shared fixtures and configuration for skill admin tests.
+
+Usage:
+    1. Start server manually: uv run python main.py
+    2. Run tests: uv run python -m tests.skill_admin.run_all
+"""
 import os
 import sys
 import time
 import shutil
 import tempfile
 import zipfile
-import subprocess
 import requests
 
 BASE_URL = "http://localhost:8002"
@@ -14,7 +18,6 @@ ADMIN_PASSWORD = "admin_password_123"
 NORMAL_USER = "skill_normal_user"
 NORMAL_PASSWORD = "normal_password_123"
 
-_server_process = None
 _tmp_dir = None
 
 
@@ -22,37 +25,61 @@ def get_base_url():
     return BASE_URL
 
 
+def is_server_running():
+    """Check if server at BASE_URL is responding."""
+    try:
+        resp = requests.get(f"{BASE_URL}/", timeout=2)
+        return resp.status_code == 200
+    except requests.exceptions.RequestException:
+        return False
+
+
+def wait_for_server(timeout: int = 30) -> bool:
+    """Wait for server to be ready."""
+    for i in range(timeout):
+        if is_server_running():
+            return True
+        time.sleep(1)
+    return False
+
+
+def ensure_server_running():
+    """Ensure server is running, raise error if not."""
+    if not is_server_running():
+        raise RuntimeError(
+            f"Server is not running at {BASE_URL}\n"
+            "Please start the server first:\n"
+            "  uv run python main.py"
+        )
+
+
 def start_server():
-    global _server_process
-    if _server_process is not None:
-        return _server_process
+    """Check if server is running. Raises error if not."""
+    print(f"[Setup] Checking server at {BASE_URL}...")
     
-    _server_process = subprocess.Popen(
-        [sys.executable, "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8002"],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        cwd=os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    if is_server_running():
+        print("[Setup] Server is running\n")
+        return True
+    
+    print(f"[Setup] Server not responding at {BASE_URL}")
+    print("[Setup] Please start server in another terminal:")
+    print("  uv run python main.py")
+    print()
+    
+    print("[Setup] Waiting for server to start (30s timeout)...")
+    if wait_for_server(30):
+        print("[Setup] Server is now running\n")
+        return True
+    
+    raise RuntimeError(
+        f"Server not started at {BASE_URL}\n"
+        "Please run: uv run python main.py"
     )
-    
-    for _ in range(30):
-        try:
-            requests.get(f"{BASE_URL}/", timeout=1)
-            break
-        except:
-            time.sleep(1)
-    
-    return _server_process
 
 
 def stop_server():
-    global _server_process
-    if _server_process is not None:
-        _server_process.terminate()
-        try:
-            _server_process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            _server_process.kill()
-        _server_process = None
+    """No-op - server should be managed externally."""
+    pass
 
 
 def get_tmp_dir():
@@ -70,19 +97,27 @@ def cleanup_tmp_dir():
 
 
 def register_and_login(username: str, password: str) -> str:
-    requests.post(f"{BASE_URL}/api/auth/register", json={
-        "username": username,
-        "password": password
-    })
+    ensure_server_running()
     
-    response = requests.post(f"{BASE_URL}/api/auth/login", data={
-        "username": username,
-        "password": password
-    })
+    try:
+        requests.post(f"{BASE_URL}/api/auth/register", json={
+            "username": username,
+            "password": password
+        }, timeout=10)
+    except requests.exceptions.RequestException as e:
+        raise RuntimeError(f"Failed to register user '{username}': {e}")
+    
+    try:
+        response = requests.post(f"{BASE_URL}/api/auth/login", json={
+            "username": username,
+            "password": password
+        }, timeout=10)
+    except requests.exceptions.RequestException as e:
+        raise RuntimeError(f"Failed to login user '{username}': {e}")
     
     if response.status_code == 200:
         return response.json()["access_token"]
-    raise Exception(f"Login failed: {response.text}")
+    raise RuntimeError(f"Login failed for '{username}': status={response.status_code}, body={response.text}")
 
 
 def get_admin_token() -> str:
@@ -226,6 +261,87 @@ def upload_skill(token: str, zip_path: str, filename: str = None) -> dict:
         )
     
     return response
+
+
+def get_skill_from_db(skill_id: str) -> dict:
+    """Get skill record from database by ID."""
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    from src.database import SessionLocal, Skill
+    
+    with SessionLocal() as db:
+        skill = db.query(Skill).filter(Skill.skill_id == skill_id).first()
+        if skill:
+            return {
+                "skill_id": skill.skill_id,
+                "name": skill.name,
+                "display_name": skill.display_name,
+                "description": skill.description,
+                "status": skill.status,
+                "skill_path": skill.skill_path,
+                "format_valid": skill.format_valid,
+                "format_errors": skill.format_errors,
+                "format_warnings": skill.format_warnings,
+                "validation_stage": skill.validation_stage,
+                "validation_score": skill.validation_score,
+                "validation_report": skill.validation_report,
+            }
+        return None
+
+
+def verify_skill_file_storage(skill_id: str, expected_name: str = None) -> tuple[bool, list[str]]:
+    """Verify that skill files are properly stored on disk.
+    
+    Returns:
+        tuple: (success, errors)
+    """
+    errors = []
+    
+    skill = get_skill_from_db(skill_id)
+    if not skill:
+        errors.append(f"Skill not found in database: {skill_id}")
+        return False, errors
+    
+    skill_path = skill.get("skill_path")
+    if not skill_path:
+        errors.append(f"skill_path is None in database")
+        return False, errors
+    
+    if not os.path.exists(skill_path):
+        errors.append(f"skill_path directory does not exist: {skill_path}")
+        return False, errors
+    
+    skill_md_path = os.path.join(skill_path, "SKILL.md")
+    if not os.path.exists(skill_md_path):
+        errors.append(f"SKILL.md not found at: {skill_md_path}")
+        return False, errors
+    
+    with open(skill_md_path, 'r', encoding='utf-8') as f:
+        content = f.read()
+    
+    if not content.strip():
+        errors.append(f"SKILL.md is empty at: {skill_md_path}")
+        return False, errors
+    
+    if expected_name and f"name: {expected_name}" not in content:
+        errors.append(f"SKILL.md does not contain expected name '{expected_name}'")
+        return False, errors
+    
+    return True, []
+
+
+def verify_skill_deleted(skill_id: str) -> tuple[bool, list[str]]:
+    """Verify that skill is deleted from both database and filesystem.
+    
+    Returns:
+        tuple: (success, errors)
+    """
+    errors = []
+    
+    skill = get_skill_from_db(skill_id)
+    if skill:
+        errors.append(f"Skill still exists in database: {skill_id}")
+    
+    return len(errors) == 0, errors
 
 
 def setup_module():

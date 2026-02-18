@@ -1,14 +1,16 @@
 """Run all skill admin tests.
 
-Usage:
-    uv run python tests/skill_admin/run_all.py
+Prerequisites:
+    1. Start server in another terminal: uv run python main.py
+    2. Wait for "Uvicorn running on http://0.0.0.0:8002"
+    3. Run this script: uv run python -m tests.skill_admin.run_all
 """
 import sys
 import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from tests.skill_admin.conftest import start_server, stop_server, cleanup_tmp_dir
+from tests.skill_admin.conftest import start_server, cleanup_tmp_dir, ensure_server_running
 from tests.skill_admin.test_auth import run_tests as run_auth_tests
 from tests.skill_admin.test_upload import run_tests as run_upload_tests
 from tests.skill_admin.test_list import run_tests as run_list_tests
@@ -28,7 +30,7 @@ def run_all_tests():
     print()
     print("Test Modules:")
     print("  1. Authentication (3 tests)")
-    print("  2. Upload (4 tests)")
+    print("  2. Upload (5 tests)")
     print("  3. Listing (3 tests)")
     print("  4. Retrieval (2 tests)")
     print("  5. Validation (3 tests)")
@@ -37,66 +39,71 @@ def run_all_tests():
     print("  8. Deletion (2 tests)")
     print("  9. Report (2 tests)")
     print()
-    print("Total: 24 test cases")
+    print("Total: 25 test cases")
     print("=" * 70)
     
-    print("\n[Setup] Starting server...")
-    start_server()
-    print("[Setup] Server started\n")
+    if not start_server():
+        return False
     
     all_results = []
+    
+    def run_test_module(name, run_func):
+        try:
+            ensure_server_running()
+            return run_func()
+        except Exception as e:
+            print(f"[ERROR] {name} failed: {e}")
+            return [(name, False)]
     
     try:
         print("-" * 70)
         print("Phase 1: Authentication Tests")
         print("-" * 70)
-        all_results.extend(run_auth_tests())
+        all_results.extend(run_test_module("Authentication", run_auth_tests))
         
         print("\n" + "-" * 70)
         print("Phase 2: Upload Tests")
         print("-" * 70)
-        all_results.extend(run_upload_tests())
+        all_results.extend(run_test_module("Upload", run_upload_tests))
         
         print("\n" + "-" * 70)
         print("Phase 3: Listing Tests")
         print("-" * 70)
-        all_results.extend(run_list_tests())
+        all_results.extend(run_test_module("Listing", run_list_tests))
         
         print("\n" + "-" * 70)
         print("Phase 4: Retrieval Tests")
         print("-" * 70)
-        all_results.extend(run_retrieval_tests())
+        all_results.extend(run_test_module("Retrieval", run_retrieval_tests))
         
         print("\n" + "-" * 70)
         print("Phase 5: Validation Tests")
         print("-" * 70)
-        all_results.extend(run_validation_tests())
+        all_results.extend(run_test_module("Validation", run_validation_tests))
         
         print("\n" + "-" * 70)
         print("Phase 6: Approval Tests")
         print("-" * 70)
-        all_results.extend(run_approval_tests())
+        all_results.extend(run_test_module("Approval", run_approval_tests))
         
         print("\n" + "-" * 70)
         print("Phase 7: Rejection Tests")
         print("-" * 70)
-        all_results.extend(run_rejection_tests())
+        all_results.extend(run_test_module("Rejection", run_rejection_tests))
         
         print("\n" + "-" * 70)
         print("Phase 8: Deletion Tests")
         print("-" * 70)
-        all_results.extend(run_deletion_tests())
+        all_results.extend(run_test_module("Deletion", run_deletion_tests))
         
         print("\n" + "-" * 70)
         print("Phase 9: Report Tests")
         print("-" * 70)
-        all_results.extend(run_report_tests())
+        all_results.extend(run_test_module("Report", run_report_tests))
         
     finally:
-        print("\n[Cleanup] Stopping server...")
-        stop_server()
         cleanup_tmp_dir()
-        print("[Cleanup] Done")
+        print("\n[Cleanup] Done")
     
     print("\n" + "=" * 70)
     print("TEST SUMMARY")

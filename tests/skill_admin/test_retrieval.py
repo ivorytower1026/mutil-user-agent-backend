@@ -1,14 +1,15 @@
 """Skill retrieval tests for Skill Admin API.
 
 Test cases:
-- GET-01: Get skill by ID
+- GET-01: Get skill by ID (with file storage verification)
 - GET-02: Get non-existent skill
 """
+import os
 import requests
 from .conftest import (
     BASE_URL, get_admin_token, make_admin_admin,
     setup_module, teardown_module, get_tmp_dir,
-    create_valid_skill_zip
+    create_valid_skill_zip, verify_skill_file_storage, get_skill_from_db
 )
 
 
@@ -42,6 +43,10 @@ def test_get_01_by_id():
     skill_id = upload_test_skill("get-test-skill")
     assert skill_id is not None, "Failed to upload test skill"
     
+    success, errors = verify_skill_file_storage(skill_id, "get-test-skill")
+    assert success, f"File storage verification failed: {errors}"
+    print("  [PASS] File storage verified")
+    
     headers = get_admin_headers()
     response = requests.get(
         f"{BASE_URL}/api/admin/skills/{skill_id}",
@@ -56,7 +61,13 @@ def test_get_01_by_id():
     assert "format_valid" in data, "Should have format_valid"
     assert "format_errors" in data, "Should have format_errors"
     assert "format_warnings" in data, "Should have format_warnings"
-    print(f"  [PASS] Retrieved skill: {data['name']} (id={skill_id})")
+    print(f"  [PASS] API response OK: {data['name']} (id={skill_id})")
+    
+    db_skill = get_skill_from_db(skill_id)
+    assert db_skill is not None, "Skill should exist in database"
+    assert db_skill['skill_path'] is not None, "skill_path should not be None"
+    assert os.path.exists(db_skill['skill_path']), f"Path should exist: {db_skill['skill_path']}"
+    print(f"  [PASS] DB record OK, path exists: {db_skill['skill_path']}")
     
     return True
 

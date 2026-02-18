@@ -5,12 +5,14 @@ Test cases:
 - UPLOAD-02: Upload non-ZIP file
 - UPLOAD-03: Upload skill without SKILL.md
 - UPLOAD-04: Upload skill with empty SKILL.md
+- UPLOAD-05: Verify file storage on disk
 """
 import requests
 from .conftest import (
     BASE_URL, get_admin_token, make_admin_admin,
     setup_module, teardown_module, get_tmp_dir,
-    create_valid_skill_zip, create_invalid_skill_zip, create_non_zip_file
+    create_valid_skill_zip, create_invalid_skill_zip, create_non_zip_file,
+    verify_skill_file_storage, get_skill_from_db
 )
 
 
@@ -41,7 +43,11 @@ def test_upload_01_valid_skill():
     assert data["name"] == "upload-test-skill", f"Expected name 'upload-test-skill', got {data['name']}"
     assert data["status"] == "pending", f"Expected status 'pending', got {data['status']}"
     assert data["format_valid"] == True, "Valid skill should have format_valid=True"
-    print(f"  [PASS] Valid skill uploaded: {data['skill_id']}")
+    print(f"  [PASS] API response OK, skill_id: {data['skill_id']}")
+    
+    success, errors = verify_skill_file_storage(data['skill_id'], "upload-test-skill")
+    assert success, f"File storage verification failed: {errors}"
+    print(f"  [PASS] File storage verified")
     
     return data["skill_id"]
 
@@ -90,6 +96,11 @@ def test_upload_03_no_skill_md():
     assert "SKILL.md" in data["format_errors"][0], f"Error should mention SKILL.md: {data['format_errors']}"
     print("  [PASS] Invalid skill (no SKILL.md) recorded with errors")
     
+    skill = get_skill_from_db(data['skill_id'])
+    assert skill is not None, "Skill should exist in database"
+    assert skill['skill_path'] is not None, "skill_path should not be None"
+    print(f"  [PASS] Skill path recorded: {skill['skill_path']}")
+    
     return data["skill_id"]
 
 
@@ -117,6 +128,62 @@ def test_upload_04_empty_skill_md():
     return True
 
 
+def test_upload_05_file_storage():
+    """UPLOAD-05: Verify file storage with custom skill name."""
+    print("\n[UPLOAD-05] Test file storage verification...")
+    
+    headers = get_admin_headers()
+    tmp_dir = get_tmp_dir()
+    skill_name = "storage-verify-skill"
+    valid_zip = create_valid_skill_zip(tmp_dir, skill_name)
+    
+    with open(valid_zip, 'rb') as f:
+        response = requests.post(
+            f"{BASE_URL}/api/admin/skills/upload",
+            headers=headers,
+            files={"file": (f"{skill_name}.zip", f, "application/zip")}
+        )
+    
+    assert response.status_code == 200, f"Expected 200, got {response.status_code}"
+    data = response.json()
+    skill_id = data['skill_id']
+    print(f"  [INFO] Uploaded skill: {skill_id}")
+    
+    success, errors = verify_skill_file_storage(skill_id, skill_name)
+    assert success, f"File storage verification failed: {errors}"
+    print(f"  [PASS] File storage verified for {skill_name}")
+    
+    skill = get_skill_from_db(skill_id)
+    assert skill is not None
+    print(f"  [PASS] Database record exists")
+    
+    skill_path = skill['skill_path']
+    import os
+    assert skill_path is not None, "skill_path is None"
+    assert os.path.exists(skill_path), f"Path does not exist: {skill_path}"
+    print(f"  [PASS] Directory exists: {skill_path}")
+    
+    skill_md = os.path.join(skill_path, "SKILL.md")
+    assert os.path.exists(skill_md), f"SKILL.md not found: {skill_md}"
+    print(f"  [PASS] SKILL.md exists")
+    
+    scripts_dir = os.path.join(skill_path, "scripts")
+    assert os.path.exists(scripts_dir), f"scripts/ directory not found: {scripts_dir}"
+    print(f"  [PASS] scripts/ directory exists")
+    
+    main_sh = os.path.join(scripts_dir, "main.sh")
+    assert os.path.exists(main_sh), f"main.sh not found: {main_sh}"
+    print(f"  [PASS] scripts/main.sh exists")
+    
+    with open(skill_md, 'r', encoding='utf-8') as f:
+        content = f.read()
+    assert f"name: {skill_name}" in content, f"SKILL.md should contain name: {skill_name}"
+    assert "description:" in content, "SKILL.md should contain description"
+    print(f"  [PASS] SKILL.md content verified")
+    
+    return True
+
+
 def run_tests():
     """Run all upload tests. Returns list of (name, result) tuples."""
     results = [
@@ -124,6 +191,7 @@ def run_tests():
         ("UPLOAD-02: Non-ZIP rejected", test_upload_02_non_zip_file()),
         ("UPLOAD-03: No SKILL.md", test_upload_03_no_skill_md() is not None),
         ("UPLOAD-04: Empty SKILL.md", test_upload_04_empty_skill_md()),
+        ("UPLOAD-05: File storage", test_upload_05_file_storage()),
     ]
     
     for name, result in results:
