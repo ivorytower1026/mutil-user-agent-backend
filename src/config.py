@@ -44,6 +44,12 @@ class Settings(BaseSettings):
     MODELSCOPE_SDK_TOKEN: str
     MODELSCOPE_URL: str
 
+    # Skill 验证相关配置
+    SKILL_IMAGES_DIR: str = "D:\\docker_volume\\mutil-user-agent\\skill-images"
+    SKILL_IMAGE_VERSIONS_TO_KEEP: int = 5
+    SKILL_PENDING_DIR: str = ""  # 待验证 skill 目录，默认为 {WORKSPACE_ROOT}/skills_pending
+    SKILL_APPROVED_DIR: str = ""  # 已入库 skill 目录，默认为 {SHARED_DIR}/skills
+
     @field_validator("IS_LANGFUSE", mode="before")
     def parse_is_langfuse(cls, v):
         return int(v)

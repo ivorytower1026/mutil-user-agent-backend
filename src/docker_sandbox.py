@@ -201,3 +201,72 @@ class DockerSandboxBackend(BaseSandbox):
                 _to_docker_path(skills_dir): {"bind": settings.CONTAINER_SKILLS_DIR, "mode": "ro"}
             }
         )
+
+    def disconnect_network(self) -> bool:
+        """Disconnect container from network (for offline testing).
+        
+        Returns:
+            True if successfully disconnected, False otherwise
+        """
+        container = self._ensure_container()
+        try:
+            self.client.networks.get("bridge").disconnect(container)
+            print(f"[DockerSandbox] Disconnected container from network for user {self.user_id}")
+            return True
+        except docker.errors.APIError as e:
+            print(f"[DockerSandbox] Failed to disconnect network: {e}")
+            return False
+
+    def reconnect_network(self) -> bool:
+        """Reconnect container to network.
+        
+        Returns:
+            True if successfully reconnected, False otherwise
+        """
+        container = self._ensure_container()
+        try:
+            self.client.networks.get("bridge").connect(container)
+            print(f"[DockerSandbox] Reconnected container to network for user {self.user_id}")
+            return True
+        except docker.errors.APIError as e:
+            print(f"[DockerSandbox] Failed to reconnect network: {e}")
+            return False
+
+    def get_container_stats(self) -> dict:
+        """Get container resource statistics.
+        
+        Returns:
+            Dict with cpu_percent, memory_mb, etc.
+        """
+        container = self._ensure_container()
+        try:
+            stats = container.stats(stream=False)
+            
+            cpu_delta = stats["cpu_stats"]["cpu_usage"]["total_usage"] - stats["precpu_stats"]["cpu_usage"]["total_usage"]
+            system_delta = stats["cpu_stats"]["system_cpu_usage"] - stats["precpu_stats"]["system_cpu_usage"]
+            
+            cpu_percent = 0.0
+            if system_delta > 0 and cpu_delta > 0:
+                cpu_percent = (cpu_delta / system_delta) * 100.0
+            
+            memory_mb = stats["memory_stats"].get("usage", 0) / 1024 / 1024
+            
+            return {
+                "cpu_percent": round(cpu_percent, 2),
+                "memory_mb": round(memory_mb, 2),
+                "container_id": container.id[:12],
+            }
+        except Exception as e:
+            print(f"[DockerSandbox] Failed to get stats: {e}")
+            return {
+                "cpu_percent": 0.0,
+                "memory_mb": 0.0,
+                "error": str(e)
+            }
+
+    @property
+    def container_id(self) -> str | None:
+        """Get container ID if container exists."""
+        if self._container:
+            return self._container.id
+        return None
