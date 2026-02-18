@@ -11,6 +11,9 @@ from sqlalchemy.orm import Session
 
 from src.database import Skill, SessionLocal
 from src.config import settings
+from src.utils.get_logger import get_logger
+
+logger = get_logger("valid-agent-skill")
 
 
 STATUS_PENDING = "pending"
@@ -237,11 +240,14 @@ class SkillManager:
         if not skill:
             raise ValueError(f"Skill not found: {skill_id}")
         
+        logger.info(f"[update_validation_result] 更新验证结果 skill_id={skill_id} stage={validation_stage}")
+        
         skill.validation_stage = validation_stage
         
         if layer1_report:
             skill.layer1_report = layer1_report
             skill.layer1_passed = layer1_report.get("passed", False)
+            logger.info(f"[update_validation_result] layer1_passed={skill.layer1_passed}")
         
         if layer2_report:
             skill.layer2_report = layer2_report
@@ -254,12 +260,15 @@ class SkillManager:
             skill.resource_efficiency_score = scores.get("resource_score")
             skill.validation_score = scores.get("overall")
             skill.score_weights = scores.get("weights")
+            logger.info(f"[update_validation_result] scores: completion={skill.completion_score}, trigger={skill.trigger_accuracy_score}, offline={skill.offline_capability_score}, resource={skill.resource_efficiency_score}, overall={skill.validation_score}")
         
         if installed_dependencies:
             skill.installed_dependencies = installed_dependencies
+            logger.info(f"[update_validation_result] 依赖数量: {len(installed_dependencies) if installed_dependencies else 0}")
         
         if validation_stage == VALIDATION_STAGE_COMPLETED:
             skill.validated_at = datetime.utcnow()
+            logger.info(f"[update_validation_result] 验证完成时间: {skill.validated_at}")
         
         db.commit()
         db.refresh(skill)
@@ -271,6 +280,8 @@ class SkillManager:
         skill = self.get(db, skill_id)
         if not skill:
             raise ValueError(f"Skill not found: {skill_id}")
+        
+        logger.info(f"[set_validating] 状态变更 skill_id={skill_id} {skill.status} -> {STATUS_VALIDATING}")
         
         skill.status = STATUS_VALIDATING
         skill.validation_stage = VALIDATION_STAGE_LAYER1
@@ -285,6 +296,8 @@ class SkillManager:
         skill = self.get(db, skill_id)
         if not skill:
             raise ValueError(f"Skill not found: {skill_id}")
+        
+        logger.warning(f"[set_validation_failed] 验证失败 skill_id={skill_id} {skill.status} -> {STATUS_PENDING}")
         
         skill.status = STATUS_PENDING
         skill.validation_stage = VALIDATION_STAGE_FAILED

@@ -12,8 +12,10 @@ from src.agent_skills.skill_manager import (
     STATUS_PENDING
 )
 from src.agent_skills.skill_validator import get_validation_orchestrator
+from src.utils.get_logger import get_logger
 
 router = APIRouter()
+logger = get_logger("valid-agent-skill")
 
 
 async def get_admin_user(
@@ -225,21 +227,28 @@ async def validate_skill(
     Returns:
         Validation result
     """
+    logger.info(f"[API validate_skill] 收到验证请求 skill_id={skill_id} admin={admin.user_id}")
+    
     manager = get_skill_manager()
     skill = manager.get(db, skill_id)
     
     if not skill:
+        logger.error(f"[API validate_skill] Skill不存在: {skill_id}")
         raise HTTPException(status_code=404, detail="Skill not found")
     
     if skill.status not in [STATUS_PENDING]:
+        logger.warning(f"[API validate_skill] 状态不允许验证: {skill.status}")
         raise HTTPException(status_code=400, detail=f"Cannot validate skill with status: {skill.status}")
     
     orchestrator = get_validation_orchestrator()
     
     try:
+        logger.info(f"[API validate_skill] 开始执行验证流程 skill_id={skill_id}")
         result = await orchestrator.validate_skill(skill_id)
+        logger.info(f"[API validate_skill] 验证完成 skill_id={skill_id} passed={result.get('passed')}")
         return {"message": "Validation completed", "result": result}
     except Exception as e:
+        logger.error(f"[API validate_skill] 验证异常 skill_id={skill_id} error={e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

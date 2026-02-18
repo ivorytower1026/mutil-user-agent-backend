@@ -2,6 +2,7 @@
 import asyncio
 import os
 import json
+import traceback
 from datetime import datetime
 from pathlib import Path
 
@@ -20,6 +21,9 @@ from src.agent_skills.skill_command_history import (
 )
 from src.agent_skills.skill_image_manager import get_image_backend
 from src.database import SessionLocal
+from src.utils.get_logger import get_logger
+
+logger = get_logger("valid-agent-skill")
 
 
 VALIDATION_AGENT_PROMPT = """你是 Skill 验证专家。
@@ -89,18 +93,27 @@ class ValidationOrchestrator:
     async def validate_skill(self, skill_id: str) -> dict:
         """Run full validation for a skill."""
         
+        logger.info(f"[validate_skill] 开始验证 skill_id={skill_id}")
+        
         async with self.validation_lock:
             with SessionLocal() as db:
                 skill = self.skill_manager.get(db, skill_id)
                 if not skill:
+                    logger.error(f"[validate_skill] Skill不存在: {skill_id}")
                     raise ValueError(f"Skill not found: {skill_id}")
                 
+                logger.info(f"[validate_skill] 获取到Skill name={skill.name}, status={skill.status}, path={skill.skill_path}")
+                
                 skill = self.skill_manager.set_validating(db, skill_id)
+                logger.info(f"[validate_skill] 状态已更新为validating")
                 
                 try:
+                    logger.info(f"[validate_skill] 开始执行Layer1验证...")
                     result = await self._validate_layer1(skill)
+                    logger.info(f"[validate_skill] Layer1验证完成, passed={result.get('passed')}")
                     
                     if result.get("passed"):
+                        logger.info(f"[validate_skill] 验证通过，更新结果到数据库...")
                         skill = self.skill_manager.update_validation_result(
                             db, skill_id,
                             validation_stage=VALIDATION_STAGE_COMPLETED,
@@ -108,49 +121,66 @@ class ValidationOrchestrator:
                             scores=result.get("scores"),
                             installed_dependencies=result.get("installed_dependencies"),
                         )
+                        logger.info(f"[validate_skill] 验证结果已保存 scores={result.get('scores')}")
                     else:
+                        logger.warning(f"[validate_skill] 验证未通过，标记为失败")
                         skill = self.skill_manager.set_validation_failed(db, skill_id)
                     
+                    logger.info(f"[validate_skill] 验证流程结束 skill_id={skill_id}, passed={result.get('passed')}")
                     return result
                     
                 except Exception as e:
+                    logger.error(f"[validate_skill] 验证异常: {e}\n{traceback.format_exc()}")
                     self.skill_manager.set_validation_failed(db, skill_id)
                     raise e
     
     async def _validate_layer1(self, skill) -> dict:
         """Run layer 1 validation (online + offline blind tests)."""
         
+        logger.info(f"[_validate_layer1] 开始Layer1验证 skill_id={skill.skill_id}, name={skill.name}")
+        
         workspace_dir = os.path.join(
             Path(settings.WORKSPACE_ROOT).expanduser().absolute(),
             f"validation_{skill.skill_id}"
         )
         os.makedirs(workspace_dir, exist_ok=True)
+        logger.info(f"[_validate_layer1] 创建workspace目录: {workspace_dir}")
         
         backend = DockerSandboxBackend(
             user_id=f"validation_{skill.skill_id}",
             workspace_dir=workspace_dir
         )
+        logger.info(f"[_validate_layer1] DockerSandboxBackend已初始化")
         
         try:
             metrics_collector = MetricsCollector(backend)
+            logger.info(f"[_validate_layer1] MetricsCollector已初始化")
             
             before_history = get_command_history(backend)
             before_count = len(before_history)
+            logger.info(f"[_validate_layer1] 记录初始命令历史数量: {before_count}")
             
             metrics_collector.start_time = datetime.utcnow()
             
+            logger.info(f"[_validate_layer1] 开始运行验证Agent...")
             validation_result = await self._run_validation_agent(backend, skill)
+            logger.info(f"[_validate_layer1] 验证Agent执行完成, task_evaluations数量: {len(validation_result.get('task_evaluations', []))}")
             
             after_history = get_command_history(backend)
             new_commands = after_history[before_count:]
             dependencies = extract_dependencies_from_commands(new_commands)
+            logger.info(f"[_validate_layer1] 提取到新依赖: {dependencies}")
             
+            logger.info(f"[_validate_layer1] 断开网络连接...")
             backend.disconnect_network()
             
+            logger.info(f"[_validate_layer1] 开始离线测试...")
             offline_result = await self._run_offline_test(backend, skill)
+            logger.info(f"[_validate_layer1] 离线测试完成 passed={offline_result.get('passed')}, blocked_network_calls={offline_result.get('blocked_network_calls')}")
             
             metrics_collector.stop_collecting()
             metrics = metrics_collector.get_summary()
+            logger.info(f"[_validate_layer1] 指标收集完成: cpu={metrics.get('cpu_percent')}%, memory={metrics.get('memory_mb')}MB, time={metrics.get('execution_time_sec')}s")
             
             task_evaluations = validation_result.get("task_evaluations", [])
             completion_score = calculate_completion_score(task_evaluations)
@@ -158,9 +188,12 @@ class ValidationOrchestrator:
             offline_score = calculate_offline_score(offline_result.get("blocked_network_calls", 0))
             resource_score = calculate_resource_score(metrics)
             
+            logger.info(f"[_validate_layer1] 评分计算完成: completion={completion_score}, trigger={trigger_score}, offline={offline_score}, resource={resource_score}")
+            
             scores = calculate_overall_score(
                 completion_score, trigger_score, offline_score, resource_score
             )
+            logger.info(f"[_validate_layer1] 总分: {scores.get('overall')}")
             
             assessment = validation_result.get("assessment", {})
             
@@ -178,6 +211,8 @@ class ValidationOrchestrator:
                 "assessment": assessment
             }
             
+            logger.info(f"[_validate_layer1] Layer1报告生成完成 passed={passed}, overall_score={scores['overall']}")
+            
             return {
                 "passed": passed,
                 "layer1_report": layer1_report,
@@ -186,10 +221,13 @@ class ValidationOrchestrator:
             }
             
         finally:
+            logger.info(f"[_validate_layer1] 销毁Docker容器...")
             backend.destroy()
     
     async def _run_validation_agent(self, backend: DockerSandboxBackend, skill) -> dict:
         """Run validation agent with DeepAgents sub-agent support."""
+        
+        logger.info(f"[_run_validation_agent] 开始运行验证Agent skill={skill.name}")
         
         skill_path = Path(skill.skill_path)
         skill_md_path = skill_path / "SKILL.md"
@@ -198,8 +236,12 @@ class ValidationOrchestrator:
         if skill_md_path.exists():
             with open(skill_md_path, encoding='utf-8') as f:
                 skill_md = f.read()
+            logger.info(f"[_run_validation_agent] 读取SKILL.md成功, 长度: {len(skill_md)}")
+        else:
+            logger.warning(f"[_run_validation_agent] SKILL.md不存在: {skill_md_path}")
         
         approved_skills = self._get_approved_skills_paths()
+        logger.info(f"[_run_validation_agent] 获取已批准skills数量: {len(approved_skills)}")
         
         prompt = f"""
 {VALIDATION_AGENT_PROMPT}
@@ -234,19 +276,28 @@ SKILL.md 内容:
         
         skill_mount = _to_docker_path(str(skill_path))
         skills_mounts[skill_mount] = {"bind": "/skill_under_test", "mode": "ro"}
+        logger.info(f"[_run_validation_agent] 挂载点: {skills_mounts}")
         
+        logger.info(f"[_run_validation_agent] 创建DeepAgent...")
         agent = create_deep_agent(
             model=big_llm,
             backend=lambda _: backend,
             system_prompt=VALIDATION_AGENT_PROMPT,
         )
         
+        logger.info(f"[_run_validation_agent] 开始执行Agent ainvoke...")
         result = await agent.ainvoke({"messages": [("user", prompt)]})
+        logger.info(f"[_run_validation_agent] Agent执行完成")
         
-        return self._parse_validation_result(result)
+        parsed_result = self._parse_validation_result(result)
+        logger.info(f"[_run_validation_agent] 结果解析完成 task_evaluations={len(parsed_result.get('task_evaluations', []))}")
+        
+        return parsed_result
     
     def _parse_validation_result(self, result) -> dict:
         """Parse validation result from agent output."""
+        
+        logger.info(f"[_parse_validation_result] 开始解析验证结果")
         
         content = ""
         if hasattr(result, 'content'):
@@ -259,6 +310,8 @@ SKILL.md 内容:
                     content = last_msg.content
                 elif isinstance(last_msg, dict):
                     content = last_msg.get('content', '')
+        
+        logger.info(f"[_parse_validation_result] 提取到content长度: {len(content)}")
         
         task_evaluations = []
         assessment = {
@@ -280,6 +333,7 @@ SKILL.md 内容:
                 json_match = content[start:end]
             
             parsed = json.loads(json_match)
+            logger.info(f"[_parse_validation_result] JSON解析成功")
             
             if isinstance(parsed, list):
                 task_evaluations = parsed
@@ -295,8 +349,11 @@ SKILL.md 内容:
                         "recommendations": parsed.get('recommendations', []),
                         "summary": parsed.get('summary', '')
                     }
-        except (json.JSONDecodeError, AttributeError):
+        except (json.JSONDecodeError, AttributeError) as e:
+            logger.warning(f"[_parse_validation_result] JSON解析失败: {e}")
             pass
+        
+        logger.info(f"[_parse_validation_result] 解析完成 task_evaluations={len(task_evaluations)}, assessment_summary={assessment.get('summary', '')[:50]}")
         
         return {
             "task_evaluations": task_evaluations,
@@ -306,7 +363,10 @@ SKILL.md 内容:
     async def _run_offline_test(self, backend: DockerSandboxBackend, skill) -> dict:
         """Run offline blind test."""
         
+        logger.info(f"[_run_offline_test] 开始离线测试 skill={skill.name}")
+        
         result = backend.execute("echo 'Offline test completed'")
+        logger.info(f"[_run_offline_test] 离线测试执行完成 result={result}")
         
         return {
             "passed": True,
@@ -318,7 +378,9 @@ SKILL.md 内容:
         """Get paths of all approved skills."""
         with SessionLocal() as db:
             skills = self.skill_manager.list_approved(db)
-            return [s.skill_path for s in skills]
+            paths = [s.skill_path for s in skills]
+            logger.info(f"[_get_approved_skills_paths] 获取已批准skills路径数量: {len(paths)}")
+            return paths
 
 
 _validation_orchestrator = None
