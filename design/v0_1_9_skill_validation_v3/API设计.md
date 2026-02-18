@@ -493,8 +493,19 @@ Content-Type: text/markdown; charset=utf-8
 
 ## 四、依赖信息
 
-Agent 在联网阶段安装的依赖：
-- pip: pandas 2.0.0
+Agent 在联网阶段执行的命令：
+
+### 安装命令
+
+| 类型 | 命令 |
+|------|------|
+| pip | pip install pandas 2.0.0 |
+
+### 完整命令列表
+
+```
+1. pip install pandas
+```
 
 ## 五、结论
 
