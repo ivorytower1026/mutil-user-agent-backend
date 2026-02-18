@@ -137,7 +137,7 @@ class AgentManager:
 - 只能观察、分析、规划
 - 可以向用户提问澄清需求
 
-请先制定计划，等用户切换到 build 模式后再执行操作。"""
+请先制定计划，并友好提示用户当前处于思考模式，请用户切换到【编辑】模式后再执行操作。"""
                     ))
                 
                 messages.append(HumanMessage(content=message))
