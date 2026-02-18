@@ -95,7 +95,7 @@ class AgentManager:
         
         return StructuredTool.from_function(
             name="ask_user",
-            description="向用户提问并等待回答。问题格式: [{question: string, options: [{label: string, value: string, allow_custom?: boolean}]}]",
+            description="向用户提问并等待回答，给出问题可能的方案。问题格式: [{question: string, options: [{label: string, value: string}]}]",
             func=ask_user,
         )
 
