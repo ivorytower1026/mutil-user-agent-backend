@@ -16,7 +16,10 @@ uv run uvicorn main:app --host 0.0.0.0 --port 8002 --reload
 
 ### Running Tests
 ```bash
-# Run all tests (requires server running on settings.PORT)
+# Run v0.1.9 Skill Admin API tests (24 test cases)
+uv run python -m tests.skill_admin.run_all
+
+# Run legacy tests (requires server running on settings.PORT)
 uv run python tests/test_v0_1_1.py
 uv run python tests/test_mvp.py
 uv run python tests/test_v0_1_5_webdav.py
@@ -45,17 +48,28 @@ backend/
 │   ├── agent_manager.py # Agent lifecycle, streaming, SSE formatting
 │   ├── docker_sandbox.py # Docker container management, Windows path handling
 │   ├── auth.py          # JWT authentication, password hashing (argon2)
-│   ├── database.py      # SQLAlchemy models (User, Thread)
+│   ├── database.py      # SQLAlchemy models (User, Thread, Skill, ImageVersion)
 │   ├── webdav.py        # WebDAV handler implementation
 │   ├── chunk_upload.py  # Large file chunked upload manager
+│   ├── skill_manager.py # Skill CRUD, validation workflow (v0.1.9)
+│   ├── skill_validator.py # Validation orchestrator with DeepAgents (v0.1.9)
+│   ├── skill_image_manager.py # Image backend with docker save/load (v0.1.9)
+│   ├── skill_metrics.py # Metrics collector and scoring (v0.1.9)
+│   ├── skill_command_history.py # Command history tracking (v0.1.9)
 │   └── utils/           # Utilities (langfuse, get_root_path)
 ├── api/                 # API layer
 │   ├── server.py        # Agent route handlers (/api/*)
 │   ├── auth.py          # Auth endpoints (/api/auth/*)
+│   ├── admin.py         # Skill admin endpoints (/api/admin/*) (v0.1.9)
 │   ├── files.py         # Chunk upload endpoints (/api/files/*)
 │   ├── webdav.py        # WebDAV routes (/dav/*)
 │   └── models.py        # Pydantic request/response schemas
 └── tests/               # Integration tests
+    ├── skill_admin/     # v0.1.9 Skill Admin API tests (24 cases)
+    │   ├── conftest.py  # Shared fixtures
+    │   ├── run_all.py   # Main test runner
+    │   └── test_*.py    # Test modules
+    └── test_*.py        # Legacy tests
 ```
 
 ## Code Style Guidelines
