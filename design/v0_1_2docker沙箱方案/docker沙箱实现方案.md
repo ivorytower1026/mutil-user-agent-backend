@@ -442,23 +442,25 @@ DELETE /api/sessions/{thread_id}
 
 ```python
 from fastapi import APIRouter, UploadFile, Depends
-from src.skill_manager import SkillManager
+from src.agent_skills.skill_manager import SkillManager
 
 router = APIRouter()
 
+
 @router.post("/skills")
 async def upload_skill(
-    skill_name: str,
-    files: list[UploadFile],
-    admin: str = Depends(get_admin_user)
+        skill_name: str,
+        files: list[UploadFile],
+        admin: str = Depends(get_admin_user)
 ):
     """上传Skill"""
     file_dict = {}
     for file in files:
         file_dict[file.filename] = await file.read()
-    
+
     skill = SkillManager().upload_skill(skill_name, file_dict)
     return {"skill": skill.name, "status": "created"}
+
 
 @router.get("/skills")
 async def list_skills():
@@ -476,16 +478,18 @@ async def list_skills():
         ]
     }
 
+
 @router.post("/skills/{skill_name}/validate")
 async def validate_skill(skill_name: str):
     """验证Skill"""
     result = SkillManager().validate_skill(skill_name)
     return result
 
+
 @router.delete("/skills/{skill_name}")
 async def delete_skill(
-    skill_name: str,
-    admin: str = Depends(get_admin_user)
+        skill_name: str,
+        admin: str = Depends(get_admin_user)
 ):
     """删除Skill"""
     SkillManager().delete_skill(skill_name)

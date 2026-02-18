@@ -1,5 +1,4 @@
 """Admin API endpoints for skill management."""
-import asyncio
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File
@@ -8,11 +7,11 @@ from sqlalchemy.orm import Session
 
 from src.database import get_db, User
 from src.auth import get_current_user
-from src.skill_manager import (
-    SkillManager, get_skill_manager,
-    STATUS_PENDING, STATUS_APPROVED, STATUS_REJECTED
+from src.agent_skills.skill_manager import (
+    get_skill_manager,
+    STATUS_PENDING
 )
-from src.skill_validator import get_validation_orchestrator
+from src.agent_skills.skill_validator import get_validation_orchestrator
 
 router = APIRouter()
 

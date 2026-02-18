@@ -355,7 +355,7 @@ class SkillManager:
 ```python
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends
 
-from src.skill_manager import SkillManager, SkillMeta
+from src.agent_skills.skill_manager import SkillManager, SkillMeta
 from src.auth import get_current_user
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -379,17 +379,17 @@ async def list_skills() -> list[dict]:
 
 @router.post("/skills/{skill_name}")
 async def upload_skill(
-    skill_name: str,
-    files: list[UploadFile] = File(...),
-    admin: str = Depends(get_admin_user)
+        skill_name: str,
+        files: list[UploadFile] = File(...),
+        admin: str = Depends(get_admin_user)
 ) -> dict:
     """上传Skill"""
     manager = SkillManager()
-    
+
     file_dict = {}
     for file in files:
         file_dict[file.filename] = await file.read()
-    
+
     try:
         meta = manager.upload_skill(skill_name, file_dict)
         return {"status": "created", "name": meta.name}
@@ -407,8 +407,8 @@ async def validate_skill(skill_name: str) -> dict:
 
 @router.delete("/skills/{skill_name}")
 async def delete_skill(
-    skill_name: str,
-    admin: str = Depends(get_admin_user)
+        skill_name: str,
+        admin: str = Depends(get_admin_user)
 ) -> dict:
     """删除Skill"""
     manager = SkillManager()

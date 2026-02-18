@@ -5,22 +5,20 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from src.config import settings, big_llm, flash_llm
+from src.config import settings, big_llm
 from src.docker_sandbox import DockerSandboxBackend, _to_docker_path
-from src.skill_manager import (
-    SkillManager, get_skill_manager,
-    STATUS_PENDING, STATUS_VALIDATING,
-    VALIDATION_STAGE_LAYER1, VALIDATION_STAGE_LAYER2,
-    VALIDATION_STAGE_COMPLETED, VALIDATION_STAGE_FAILED
+from src.agent_skills.skill_manager import (
+    get_skill_manager,
+    VALIDATION_STAGE_COMPLETED
 )
-from src.skill_metrics import (
+from src.agent_skills.skill_metrics import (
     MetricsCollector, calculate_resource_score, calculate_offline_score,
     calculate_trigger_score, calculate_completion_score, calculate_overall_score
 )
-from src.skill_command_history import (
+from src.agent_skills.skill_command_history import (
     get_command_history, extract_dependencies_from_commands
 )
-from src.skill_image_manager import get_image_backend
+from src.agent_skills.skill_image_manager import get_image_backend
 from src.database import SessionLocal
 
 
