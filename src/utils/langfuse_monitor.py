@@ -34,7 +34,9 @@ def init_langfuse(
     auto_flush: bool = True,
     flush_at: int = 1,
     flush_interval: float = 1,
-) -> Tuple[CallbackHandler, object]:
+) -> Tuple[CallbackHandler | None, object | None]:
+    if settings.IS_LANGFUSE == 0:
+        return None, None
 
     client = _init_langfuse_singleton(
         public_key,

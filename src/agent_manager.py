@@ -119,7 +119,8 @@ class AgentManager:
         async def agent_task():
             try:
                 handler, _ = init_langfuse()
-                config = {"configurable": {"thread_id": thread_id}, "callbacks": [handler]}
+                callbacks = [handler] if handler else []
+                config = {"configurable": {"thread_id": thread_id}, "callbacks": callbacks}
                 
                 messages = []
                 if files:
@@ -231,7 +232,7 @@ class AgentManager:
             thread_id=thread_id,
             action=InterruptAction(action),
             answers=answers,
-            langfuse_handler=handler,
+            langfuse_handler=handler if handler else None,
         ):
             yield chunk
 
