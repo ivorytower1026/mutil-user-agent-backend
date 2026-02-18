@@ -66,6 +66,9 @@ class SSEFormatter:
     def make_title_updated_event(self, title: str) -> str:
         return self.format(InternalEventType.TITLE_UPDATED, {"title": title})
 
+    def make_todos_event(self, todos: list[dict]) -> str:
+        return self.format(InternalEventType.TODOS_UPDATED, {"todos": todos})
+
 
 class StreamDataFormatter:
     def __init__(self, sse_formatter: SSEFormatter):

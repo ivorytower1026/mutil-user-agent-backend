@@ -14,6 +14,7 @@ class SSEEvent(StrEnum):
     ERROR = "error"
     END = "end"
     TITLE_UPDATED = "title_updated"
+    TODOS_UPDATED = "todos_updated"
 
 
 class InterruptAction(StrEnum):
@@ -31,6 +32,7 @@ class InternalEventType(StrEnum):
     ERROR = "error"
     DONE = "done"
     TITLE_UPDATED = "title_updated"
+    TODOS_UPDATED = "todos_updated"
 
 
 TOOL_EXECUTE = "execute"
@@ -52,6 +54,7 @@ INTERNAL_TO_SSE_EVENT: dict[str, str] = {
     InternalEventType.ERROR: SSEEvent.ERROR,
     InternalEventType.DONE: SSEEvent.END,
     InternalEventType.TITLE_UPDATED: SSEEvent.TITLE_UPDATED,
+    InternalEventType.TODOS_UPDATED: SSEEvent.TODOS_UPDATED,
 }
 
 

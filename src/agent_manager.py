@@ -165,6 +165,9 @@ class AgentManager:
                                 ))
                                 return
                         else:
+                            if stream_mode == "updates" and isinstance(data, dict) and "todos" in data:
+                                await queue.put(self.sse_formatter.make_todos_event(data["todos"]))
+                            
                             formatted = self.stream_formatter.format_stream_data(stream_mode, data)
                             if formatted:
                                 await queue.put(formatted)
