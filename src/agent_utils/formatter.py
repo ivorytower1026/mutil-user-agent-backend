@@ -118,10 +118,19 @@ class StreamDataFormatter:
             return None
         
         msg, _ = data
-        if not isinstance(msg, AIMessage) or not msg.content:
-            return None
         
-        return self.sse.make_content_event(msg.content)
+        # 处理 write_todos 工具调用
+        if hasattr(msg, 'tool_calls') and msg.tool_calls:
+            for tc in msg.tool_calls:
+                if isinstance(tc, dict) and tc.get('name') == 'write_todos':
+                    todos = tc.get('args', {}).get('todos', [])
+                    return self.sse.make_tool_start_event('write_todos', todos)
+        
+        # 处理普通内容
+        if isinstance(msg, AIMessage) and msg.content:
+            return self.sse.make_content_event(msg.content)
+        
+        return None
 
     def _format_astream_message(self, data: Any) -> str | None:
         if isinstance(data, tuple) and len(data) == 2:
@@ -173,8 +182,16 @@ class StreamDataFormatter:
         })
 
     def _format_tool_update(self, data: dict) -> str | None:
+        # 处理 tools 节点的消息（工具执行结果）
+        if "tools" in data:
+            tools_data = data["tools"]
+            if isinstance(tools_data, dict) and "messages" in tools_data:
+                for msg in tools_data["messages"]:
+                    if hasattr(msg, 'name'):
+                        return self.sse.make_tool_end_event(msg.name)
+        
         for key, value in data.items():
-            if key == "__interrupt__":
+            if key in ["__interrupt__", "tools"]:
                 continue
             
             if isinstance(value, dict):

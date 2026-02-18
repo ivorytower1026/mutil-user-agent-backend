@@ -152,19 +152,6 @@ class AgentManager:
                     async for stream_mode, data in self.compiled_agent.astream(
                         current_input, config=config, stream_mode=["messages", "updates"]
                     ):
-                        # [DEBUG] 打印 stream 数据结构
-                        logger.info(f"[DEBUG] stream_mode={stream_mode}, data_type={type(data).__name__}")
-                        if isinstance(data, dict):
-                            logger.info(f"[DEBUG] data keys: {list(data.keys())}")
-                            for k, v in data.items():
-                                logger.info(f"[DEBUG]   {k}: {type(v).__name__}")
-                                if hasattr(v, 'keys'):
-                                    logger.info(f"[DEBUG]     sub-keys: {list(v.keys()) if hasattr(v, 'keys') else 'N/A'}")
-                        elif isinstance(data, tuple):
-                            logger.info(f"[DEBUG] tuple length: {len(data)}")
-                            for i, item in enumerate(data):
-                                logger.info(f"[DEBUG]   [{i}] {type(item).__name__}")
-
                         tool_name = self.stream_formatter.extract_interrupt_tool_name(data)
                         
                         if tool_name in AUTO_APPROVE_TOOLS:
