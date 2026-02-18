@@ -1,6 +1,6 @@
 from datetime import datetime
 from pydantic import BaseModel
-from typing import Literal, Optional
+from typing import Literal, Optional, Any
 
 
 class ChatRequest(BaseModel):
@@ -31,9 +31,16 @@ class ThreadStatus(BaseModel):
     message_count: int
 
 
+class ToolCall(BaseModel):
+    name: str
+    status: Literal["running", "completed"]
+    todos: Optional[list[dict[str, Any]]] = None
+
+
 class Message(BaseModel):
     role: Literal["user", "assistant", "tool", "system"]
     content: str
+    toolCalls: Optional[list[ToolCall]] = None
 
 
 class HistoryResponse(BaseModel):
