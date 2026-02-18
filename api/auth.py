@@ -30,6 +30,7 @@ class Token(BaseModel):
     """JWT token response."""
     access_token: str
     token_type: str
+    is_admin: bool = False
 
 
 class RegisterResponse(BaseModel):
@@ -100,4 +101,4 @@ async def login(user: UserLogin, db: Session = Depends(get_db)):
     # Create JWT token
     access_token = create_access_token(data={"sub": db_user.user_id})
     
-    return Token(access_token=access_token, token_type="bearer")
+    return Token(access_token=access_token, token_type="bearer", is_admin=db_user.is_admin or False)
