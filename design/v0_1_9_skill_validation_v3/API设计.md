@@ -363,190 +363,254 @@ GET /api/admin/skills/{skill_id}/report
 Authorization: Bearer {token}
 ```
 
-**成功响应（验证完成）**:
-```json
-{
-  "skill_id": "uuid-xxx",
-  "skill_name": "csv-analyzer",
-  "validation_stage": "completed",
-  "runtime_image_version": null,
-  
-  "format_check": {
-    "passed": true,
-    "errors": [],
-    "warnings": ["未找到 requirements.txt"]
-  },
-  
-  "layer1_result": {
-    "passed": true,
-    "blind_test": {
-      "passed": true,
-      "skill_triggered": true,
-      "trigger_accuracy": 1.0,
-      "task_results": [
-        {
-          "task": "分析 data.csv 文件，统计每列的平均值",
-          "completed": true,
-          "skill_used": "csv-analyzer",
-          "correct_skill_used": true,
-          "execution_time_ms": 2340,
-          "output_summary": "成功统计了 5 列数据..."
-        },
-        {
-          "task": "读取 sales.csv，计算月度销售额总和",
-          "completed": true,
-          "skill_used": "csv-analyzer",
-          "correct_skill_used": true,
-          "execution_time_ms": 1890,
-          "output_summary": "计算得出月度销售额..."
-        },
-        {
-          "task": "检查 users.csv 的数据完整性",
-          "completed": true,
-          "skill_used": "csv-analyzer",
-          "correct_skill_used": true,
-          "execution_time_ms": 1560,
-          "output_summary": "发现 3 条数据存在空值..."
-        }
-      ]
-    },
-    "network_test": {
-      "passed": true,
-      "blocked_network_calls": 0,
-      "offline_capable": true
-    },
-    "execution_metrics": {
-      "cpu_percent": 15.2,
-      "memory_mb": 128.0,
-      "disk_read_mb": 2.5,
-      "disk_write_mb": 1.2,
-      "execution_time_sec": 45.0
-    },
-    "scores": {
-      "usability": 85,
-      "trigger_accuracy": 100,
-      "offline_capability": 100,
-      "resource_efficiency": 75,
-      "overall": 90.0
-    },
-    "summary": "该 Skill 在离线环境下表现优秀，Agent 能准确识别并调用",
-    "strengths": [
-      "触发准确性高，3个任务全部正确使用",
-      "完全离线可用，无网络依赖",
-      "资源占用适中"
-    ],
-    "weaknesses": [
-      "大文件处理时内存占用略高"
-    ],
-    "recommendations": [
-      "考虑增加流式处理支持以降低内存峰值"
-    ]
-  },
-  
-  "layer2_result": {
-    "passed": true,
-    "regression_results": {
-      "skill-a": {
-        "passed": true,
-        "score": 85,
-        "tasks_completed": 3,
-        "error": null
-      },
-      "skill-b": {
-        "passed": true,
-        "score": 90,
-        "tasks_completed": 3,
-        "error": null
-      }
-    },
-    "total_skills_tested": 2,
-    "failed_skills": []
-  },
-  
-  "installed_dependencies": {
-    "pip": {"pandas": "2.0.0"},
-    "npm": {},
-    "system": {}
-  },
-  
-  "validated_at": "2026-02-16T10:10:00Z",
-  "warning": null
-}
+**说明**：返回 Markdown 格式的验证报告，由报告生成子 Agent 动态生成，便于管理员阅读。
+
+**响应头**：
+```
+Content-Type: text/markdown; charset=utf-8
+```
+
+**成功响应（验证完成）**: 返回 Markdown 文本
+
+```markdown
+# Skill 验证报告
+
+> 生成时间：2026-02-16T10:10:00Z
+
+## 基本信息
+
+| 字段 | 值 |
+|------|-----|
+| **Skill ID** | uuid-xxx |
+| **名称** | csv-analyzer |
+| **验证阶段** | completed |
+| **运行镜像版本** | - |
+
+## 一、格式验证
+
+- **通过**：是
+- **错误**：无
+- **警告**：未找到 requirements.txt
+
+## 二、第一层验证（单独验证）
+
+### 2.1 联网盲测结果
+
+- **通过**：是
+- **Skill 被触发**：是
+- **触发准确性**：100%
+
+#### 联网任务详情
+
+| 任务 | 完成状态 | 使用的 Skill | 正确使用 | 执行时间 |
+|------|----------|--------------|----------|----------|
+| 分析 data.csv 文件，统计每列的平均值 | ✅ | csv-analyzer | ✅ | 2340ms |
+| 读取 sales.csv，计算月度销售额总和 | ✅ | csv-analyzer | ✅ | 1890ms |
+| 检查 users.csv 的数据完整性 | ✅ | csv-analyzer | ✅ | 1560ms |
+
+### 2.2 离线盲测结果
+
+- **通过**：是
+- **Skill 被触发**：是
+- **触发准确性**：100%
+
+#### 离线任务详情
+
+| 任务 | 完成状态 | 使用的 Skill | 正确使用 | 执行时间 |
+|------|----------|--------------|----------|----------|
+| 分析 data.csv 文件，统计每列的平均值 | ✅ | csv-analyzer | ✅ | 2100ms |
+| 读取 sales.csv，计算月度销售额总和 | ✅ | csv-analyzer | ✅ | 1750ms |
+| 检查 users.csv 的数据完整性 | ✅ | csv-analyzer | ✅ | 1480ms |
+
+### 2.3 网络测试（离线环境）
+
+- **通过**：是
+- **离线可用**：是
+- **阻止的网络调用**：0 次
+
+### 2.4 执行监控
+
+| 指标 | 值 |
+|------|-----|
+| CPU 使用率 | 15.2% |
+| 内存使用 | 128.0 MB |
+| 磁盘读取 | 2.5 MB |
+| 磁盘写入 | 1.2 MB |
+| 执行时间 | 45.0 秒 |
+
+### 2.5 评分
+
+> **说明**：任务完成度由 LLM Judge 评估，其他维度客观计算
+
+| 维度 | 分数 | 权重 | 评分方式 | 说明 |
+|------|------|------|----------|------|
+| 任务完成度 | 80/100 | 40% | LLM Judge | 3个任务评分：5/5/3 |
+| 触发准确性 | 100/100 | 30% | 客观规则 | 3/3 任务正确使用 skill |
+| 离线能力 | 100/100 | 20% | 客观规则 | 无网络调用 |
+| 资源效率 | 75/100 | 10% | 客观规则 | CPU 15.2% |
+| **总分** | **89.5** | - | 加权平均 | - |
+
+#### 任务完成度详情
+
+| 任务 | LLM评分 | 分数 | 评估理由 |
+|------|---------|------|----------|
+| 分析 data.csv 文件，统计每列的平均值 | 5 | 100 | 完美完成，输出清晰 |
+| 读取 sales.csv，计算月度销售额总和 | 5 | 100 | 完美完成，格式规范 |
+| 检查 users.csv 的数据完整性 | 3 | 50 | 部分完成，未检测空值 |
+
+### 2.6 评估
+
+> 以下内容由 LLM 基于验证结果生成，不参与打分
+
+**优点**：
+- 触发准确性高，3个任务全部正确使用
+- 完全离线可用，无网络依赖
+- 资源占用适中
+
+**缺点**：
+- 数据完整性检查功能不完善
+- 大文件处理时内存占用略高
+
+**改进建议**：
+- 增强数据完整性检查，支持空值检测
+- 考虑增加流式处理支持以降低内存峰值
+
+**总结**：该 Skill 核心功能完善，触发准确，离线能力优秀，建议增强完整性检查功能
+
+## 三、第二层验证（回归验证）
+
+- **通过**：是
+- **测试的已入库 Skill 数量**：2
+
+**失败的 Skill**：无
+
+### 回归详情
+
+| Skill 名称 | 通过 | 分数 | 完成任务 | 错误 |
+|------------|------|------|----------|------|
+| skill-a | ✅ | 85/100 | 3/3 | - |
+| skill-b | ✅ | 90/100 | 3/3 | - |
+
+## 四、依赖信息
+
+Agent 在联网阶段执行的命令：
+
+### 安装命令
+
+| 类型 | 命令 |
+|------|------|
+| pip | pip install pandas 2.0.0 |
+
+### 完整命令列表
+
+```
+1. pip install pandas
+```
+
+## 五、结论
+
+**验证状态**：✅ 通过
+
+---
+
+*报告由报告生成 Agent 自动生成*
 ```
 
 **验证进行中**:
-```json
-{
-  "skill_id": "uuid-xxx",
-  "skill_name": "csv-analyzer",
-  "validation_stage": "layer1",
-  "layer1_result": null,
-  "layer2_result": null,
-  "message": "Validation in progress (layer 1)"
-}
+```markdown
+# Skill 验证报告
+
+## 基本信息
+
+| 字段 | 值 |
+|------|-----|
+| **Skill ID** | uuid-xxx |
+| **名称** | csv-analyzer |
+| **验证阶段** | layer1 |
+
+## 说明
+
+验证正在进行中（第一层验证），请稍后刷新查看完整报告。
 ```
 
 **第一层验证失败**:
-```json
-{
-  "skill_id": "uuid-xxx",
-  "skill_name": "web-fetcher",
-  "validation_stage": "failed",
-  
-  "layer1_result": {
-    "passed": false,
-    "blind_test": {
-      "passed": false,
-      "skill_triggered": true,
-      "trigger_accuracy": 0.33,
-      "task_results": [...]
-    },
-    "network_test": {
-      "passed": false,
-      "blocked_network_calls": 5,
-      "offline_capable": false
-    },
-    "scores": {
-      "usability": 30,
-      "trigger_accuracy": 33,
-      "offline_capability": 0,
-      "resource_efficiency": 90,
-      "overall": 33.25
-    },
-    "summary": "该 Skill 强依赖网络，无法在离线环境使用",
-    "weaknesses": ["无法离线运行"],
-    "recommendations": ["考虑增加离线缓存机制"]
-  },
-  
-  "layer2_result": null,
-  "warning": "验证评分（33.25）低于阈值（70）"
-}
+```markdown
+# Skill 验证报告
+
+## 基本信息
+
+| 字段 | 值 |
+|------|-----|
+| **Skill ID** | uuid-xxx |
+| **名称** | web-fetcher |
+| **验证阶段** | failed |
+
+## 一、第一层验证（单独验证）
+
+### 评分
+
+| 维度 | 分数 | 权重 | 评分方式 |
+|------|------|------|----------|
+| 任务完成度 | 30/100 | 40% | LLM Judge |
+| 触发准确性 | 33/100 | 30% | 客观规则 |
+| 离线能力 | 0/100 | 20% | 客观规则 |
+| 资源效率 | 90/100 | 10% | 客观规则 |
+| **总分** | **33.9** | - | 加权平均 |
+
+### 网络测试
+
+- **通过**：否
+- **离线可用**：否
+- **阻止的网络调用**：5 次
+
+## 结论
+
+⚠️ **警告**：验证评分（33.9）低于阈值（70）
+
+**验证状态**：❌ 失败
+
+**原因**：该 Skill 强依赖网络，无法在离线环境使用
+
+**改进建议**：考虑增加离线缓存机制
 ```
 
 **回归验证失败**:
-```json
-{
-  "skill_id": "uuid-xxx",
-  "skill_name": "new-processor",
-  "validation_stage": "failed",
-  
-  "layer1_result": {
-    "passed": true,
-    "scores": {"overall": 85}
-  },
-  
-  "layer2_result": {
-    "passed": false,
-    "regression_results": {
-      "skill-a": {
-        "passed": true,
-        "score": 85,
-        "tasks_completed": 3,
-        "error": null
-      },
-      "skill-b": {
-        "passed": false,
-        "score": 40,
+```markdown
+# Skill 验证报告
+
+## 基本信息
+
+| 字段 | 值 |
+|------|-----|
+| **Skill ID** | uuid-xxx |
+| **名称** | new-processor |
+| **验证阶段** | failed |
+
+## 一、第一层验证
+
+- **通过**：是
+- **总分**：85
+
+## 二、第二层验证（回归验证）
+
+- **通过**：否
+- **失败的 Skill**：skill-b
+
+### 回归详情
+
+| Skill 名称 | 通过 | 分数 | 错误 |
+|------------|------|------|------|
+| skill-a | ✅ | 85/100 | - |
+| skill-b | ❌ | 40/100 | numpy 版本冲突导致导入失败 |
+
+## 结论
+
+⚠️ **警告**：回归验证失败，skill-b 受到影响
+
+**验证状态**：❌ 失败
+
+**原因**：新安装的 numpy 2.0 与 skill-b 依赖的 numpy 1.x 不兼容
+```
         "tasks_completed": 1,
         "error": "numpy 版本冲突导致导入失败"
       }

@@ -13,6 +13,7 @@ from api.server import router as api_router, agent_manager
 from api.auth import router as auth_router
 from api.webdav import router as webdav_router
 from api.files import router as files_router, upload_manager
+from api.admin import router as admin_router
 from src.database import create_tables
 
 @asynccontextmanager
@@ -27,7 +28,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Multi-tenant AI Agent Platform",
     description="Backend service for AI coding agents",
-    version="0.1.5",
+    version="0.1.9",
     lifespan=lifespan
 )
 
@@ -51,12 +52,15 @@ app.include_router(webdav_router, prefix="/dav", tags=["webdav"])
 # Include files router for chunk upload
 app.include_router(files_router, prefix="/api")
 
+# Include admin router for skill management
+app.include_router(admin_router, prefix="/api/admin", tags=["admin"])
+
 
 @app.get("/")
 async def root():
     return {
         "message": "Multi-tenant AI Agent Platform",
-        "version": "0.1.5",
+        "version": "0.1.9",
         "endpoints": {
             "register": "POST /api/auth/register",
             "login": "POST /api/auth/login",
@@ -64,7 +68,8 @@ async def root():
             "chat": "POST /api/chat/{thread_id}",
             "resume": "POST /api/resume/{thread_id}",
             "webdav": "/dav/{path} (PROPFIND/GET/PUT/MKCOL/DELETE/MOVE)",
-            "chunk_upload": "/api/files/init-upload, /api/files/upload-chunk, /api/files/complete-upload"
+            "chunk_upload": "/api/files/init-upload, /api/files/upload-chunk, /api/files/complete-upload",
+            "admin_skills": "/api/admin/skills (GET, POST /upload, GET/POST/DELETE /{skill_id})"
         }
     }
 
