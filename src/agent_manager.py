@@ -11,6 +11,7 @@ from typing import Annotated
 from src.config import big_llm, settings, flash_llm
 from src.database import SessionLocal, Thread
 from src.docker_sandbox import get_thread_backend
+from src.utils.get_logger import get_logger
 from src.utils.langfuse_monitor import init_langfuse
 
 from psycopg_pool import AsyncConnectionPool
@@ -23,7 +24,7 @@ from src.agent_utils.interrupt import InterruptHandler
 from src.agent_utils.session import SessionManager
 from src.agent_utils.types import InterruptAction
 
-logger = logging.getLogger(__name__)
+logger = get_logger("main-agent")
 
 AUTO_APPROVE_TOOLS = {"execute", "write_file", "edit_file"}
 
