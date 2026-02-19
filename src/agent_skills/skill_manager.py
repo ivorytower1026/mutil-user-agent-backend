@@ -32,7 +32,7 @@ def get_skill_pending_dir() -> Path:
     """Get pending skills directory."""
     if settings.SKILL_PENDING_DIR:
         return Path(settings.SKILL_PENDING_DIR).expanduser().absolute()
-    return Path(settings.WORKSPACE_ROOT).expanduser().absolute() / "skills_pending"
+    return Path(settings.SHARED_DIR).expanduser().absolute() / "skills_pending"
 
 
 def get_skill_approved_dir() -> Path:

@@ -242,3 +242,8 @@ class AgentManager:
 
     async def list_sessions(self, user_id: str, page: int = 1, page_size: int = 20) -> dict:
         return await self.session_manager.list_sessions(user_id, page, page_size)
+
+    async def close(self):
+        if self.pool:
+            await self.pool.close()
+            logger.info("[AgentManager] Connection pool closed")

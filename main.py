@@ -30,7 +30,12 @@ async def lifespan(app: FastAPI):
     cleaned = upload_manager.cleanup_stale()
     if cleaned > 0:
         print(f"[Startup] Cleaned up {cleaned} stale upload sessions")
-    yield
+    
+    try:
+        yield
+    finally:
+        await agent_manager.close()
+        print("[Shutdown] Agent manager closed")
 
 app = FastAPI(
     title="Multi-tenant AI Agent Platform",
