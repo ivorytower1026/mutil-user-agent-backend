@@ -15,11 +15,18 @@ from api.webdav import router as webdav_router
 from api.files import router as files_router, upload_manager
 from api.admin import router as admin_router
 from src.database import create_tables
+from src.agent_skills.skill_validator import get_validation_orchestrator
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     create_tables()
     await agent_manager.init()
+    
+    orchestrator = get_validation_orchestrator()
+    resumed_count = await orchestrator.resume_all_pending()
+    if resumed_count > 0:
+        print(f"[Startup] Resumed {resumed_count} pending validations")
+    
     cleaned = upload_manager.cleanup_stale()
     if cleaned > 0:
         print(f"[Startup] Cleaned up {cleaned} stale upload sessions")

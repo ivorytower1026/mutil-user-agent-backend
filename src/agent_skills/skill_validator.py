@@ -10,7 +10,8 @@ from src.config import settings, big_llm
 from src.docker_sandbox import DockerSandboxBackend, _to_docker_path
 from src.agent_skills.skill_manager import (
     get_skill_manager,
-    VALIDATION_STAGE_COMPLETED
+    VALIDATION_STAGE_COMPLETED,
+    STATUS_VALIDATING
 )
 from src.agent_skills.skill_metrics import (
     MetricsCollector, calculate_resource_score, calculate_offline_score,
@@ -22,8 +23,15 @@ from src.agent_skills.skill_command_history import (
 from src.agent_skills.skill_image_manager import get_image_backend
 from src.database import SessionLocal
 from src.utils.get_logger import get_logger
+from langchain_core.runnables import RunnableConfig
 
 logger = get_logger("valid-agent-skill")
+
+THREAD_ID_PREFIX = "validation_"
+
+
+def _get_validation_thread_id(skill_id: str) -> str:
+    return f"{THREAD_ID_PREFIX}{skill_id}"
 
 
 VALIDATION_AGENT_PROMPT = """你是 Skill 验证专家。
@@ -82,6 +90,11 @@ VALIDATION_AGENT_PROMPT = """你是 Skill 验证专家。
 """
 
 
+def _get_checkpointer():
+    from api.server import agent_manager
+    return agent_manager.checkpointer
+
+
 class ValidationOrchestrator:
     """Orchestrates skill validation with network control and metrics collection."""
     
@@ -90,10 +103,18 @@ class ValidationOrchestrator:
         self.skill_manager = get_skill_manager()
         self.image_backend = get_image_backend()
     
+    @property
+    def checkpointer(self):
+        return _get_checkpointer()
+    
     async def validate_skill(self, skill_id: str) -> dict:
-        """Run full validation for a skill."""
+        """Run full validation for a skill with checkpoint support."""
         
         logger.info(f"[validate_skill] 开始验证 skill_id={skill_id}")
+        
+        thread_id = _get_validation_thread_id(skill_id)
+        config = RunnableConfig(configurable={"thread_id": thread_id})
+        checkpointer = self.checkpointer
         
         async with self.validation_lock:
             with SessionLocal() as db:
@@ -104,12 +125,49 @@ class ValidationOrchestrator:
                 
                 logger.info(f"[validate_skill] 获取到Skill name={skill.name}, status={skill.status}, path={skill.skill_path}")
                 
+                existing_state = None
+                if skill.status == STATUS_VALIDATING and checkpointer:
+                    existing_state = await checkpointer.aget(config)
+                
+                if existing_state is not None:
+                    logger.info(f"[validate_skill] 检测到未完成的验证会话，尝试恢复 thread_id={thread_id}")
+                    result = await self._validate_layer1(skill, config, resume=True)
+                    logger.info(f"[validate_skill] Layer1恢复验证完成, passed={result.get('passed')}")
+                    
+                    if result.get("passed"):
+                        logger.info(f"[validate_skill] 恢复验证通过，更新结果到数据库...")
+                        skill = self.skill_manager.update_validation_result(
+                            db, skill_id,
+                            validation_stage=VALIDATION_STAGE_COMPLETED,
+                            layer1_report=result.get("layer1_report"),
+                            scores=result.get("scores"),
+                            installed_dependencies=result.get("installed_dependencies"),
+                        )
+                    else:
+                        logger.warning(f"[validate_skill] 恢复验证未通过，标记为失败")
+                        self.skill_manager.set_validation_failed(db, skill_id)
+                    
+                    if checkpointer:
+                        try:
+                            await checkpointer.adelete(config)
+                            logger.info(f"[validate_skill] 已清理checkpoint thread_id={thread_id}")
+                        except Exception as e:
+                            logger.warning(f"[validate_skill] 清理checkpoint失败: {e}")
+                    
+                    return result
+                
+                if skill.status == STATUS_VALIDATING:
+                    logger.error(f"[validate_skill] 状态为validating但无checkpoint，标记失败")
+                    self.skill_manager.set_validation_failed(db, skill_id)
+                    raise ValueError(f"Validation checkpoint lost for skill {skill_id}, please retry validation")
+                
+                logger.info(f"[validate_skill] 开始新验证会话 thread_id={thread_id}")
                 skill = self.skill_manager.set_validating(db, skill_id)
                 logger.info(f"[validate_skill] 状态已更新为validating")
                 
                 try:
                     logger.info(f"[validate_skill] 开始执行Layer1验证...")
-                    result = await self._validate_layer1(skill)
+                    result = await self._validate_layer1(skill, config)
                     logger.info(f"[validate_skill] Layer1验证完成, passed={result.get('passed')}")
                     
                     if result.get("passed"):
@@ -126,6 +184,13 @@ class ValidationOrchestrator:
                         logger.warning(f"[validate_skill] 验证未通过，标记为失败")
                         skill = self.skill_manager.set_validation_failed(db, skill_id)
                     
+                    if checkpointer:
+                        try:
+                            await checkpointer.adelete(config)
+                            logger.info(f"[validate_skill] 已清理checkpoint thread_id={thread_id}")
+                        except Exception as e:
+                            logger.warning(f"[validate_skill] 清理checkpoint失败: {e}")
+                    
                     logger.info(f"[validate_skill] 验证流程结束 skill_id={skill_id}, passed={result.get('passed')}")
                     return result
                     
@@ -134,10 +199,17 @@ class ValidationOrchestrator:
                     self.skill_manager.set_validation_failed(db, skill_id)
                     raise e
     
-    async def _validate_layer1(self, skill) -> dict:
-        """Run layer 1 validation (online + offline blind tests)."""
+    async def _validate_layer1(self, skill, config: RunnableConfig | None = None, resume: bool = False) -> dict:
+        """Run layer 1 validation (online + offline blind tests).
         
-        logger.info(f"[_validate_layer1] 开始Layer1验证 skill_id={skill.skill_id}, name={skill.name}")
+        Args:
+            skill: Skill 对象
+            config: RunnableConfig，包含 thread_id
+            resume: 是否为恢复模式，True 时使用 ainvoke(None) 恢复
+        """
+        
+        mode = "恢复" if resume else "新"
+        logger.info(f"[_validate_layer1] 开始{mode}验证 skill_id={skill.skill_id}, name={skill.name}")
         
         workspace_dir = os.path.join(
             Path(settings.WORKSPACE_ROOT).expanduser().absolute(),
@@ -152,6 +224,11 @@ class ValidationOrchestrator:
         )
         logger.info(f"[_validate_layer1] DockerSandboxBackend已初始化")
         
+        checkpointer = self.checkpointer
+        invoke_config = config or RunnableConfig(
+            configurable={"thread_id": _get_validation_thread_id(skill.skill_id)}
+        )
+        
         try:
             metrics_collector = MetricsCollector(backend)
             logger.info(f"[_validate_layer1] MetricsCollector已初始化")
@@ -162,8 +239,26 @@ class ValidationOrchestrator:
             
             metrics_collector.start_time = datetime.utcnow()
             
-            logger.info(f"[_validate_layer1] 开始运行验证Agent...")
-            validation_result = await self._run_validation_agent(backend, skill)
+            if resume:
+                from deepagents import create_deep_agent
+                
+                logger.info(f"[_validate_layer1] 创建DeepAgent准备恢复...")
+                agent = create_deep_agent(
+                    model=big_llm,
+                    backend=lambda _: backend,
+                    system_prompt=VALIDATION_AGENT_PROMPT,
+                    checkpointer=checkpointer,
+                )
+                
+                logger.info(f"[_validate_layer1] 通过ainvoke(None)恢复执行...")
+                result = await agent.ainvoke(None, config=invoke_config)
+                logger.info(f"[_validate_layer1] Agent恢复执行完成")
+                
+                validation_result = self._parse_validation_result(result)
+            else:
+                logger.info(f"[_validate_layer1] 开始运行验证Agent...")
+                validation_result = await self._run_validation_agent(backend, skill, config)
+            
             logger.info(f"[_validate_layer1] 验证Agent执行完成, task_evaluations数量: {len(validation_result.get('task_evaluations', []))}")
             
             after_history = get_command_history(backend)
@@ -208,7 +303,8 @@ class ValidationOrchestrator:
                 "offline_blind_test": offline_result,
                 "metrics": metrics,
                 "scores": scores,
-                "assessment": assessment
+                "assessment": assessment,
+                "resumed": resume
             }
             
             logger.info(f"[_validate_layer1] Layer1报告生成完成 passed={passed}, overall_score={scores['overall']}")
@@ -224,7 +320,7 @@ class ValidationOrchestrator:
             logger.info(f"[_validate_layer1] 销毁Docker容器...")
             backend.destroy()
     
-    async def _run_validation_agent(self, backend: DockerSandboxBackend, skill) -> dict:
+    async def _run_validation_agent(self, backend: DockerSandboxBackend, skill, config: RunnableConfig | None = None) -> dict:
         """Run validation agent with DeepAgents sub-agent support."""
         
         logger.info(f"[_run_validation_agent] 开始运行验证Agent skill={skill.name}")
@@ -278,15 +374,20 @@ SKILL.md 内容:
         skills_mounts[skill_mount] = {"bind": "/skill_under_test", "mode": "ro"}
         logger.info(f"[_run_validation_agent] 挂载点: {skills_mounts}")
         
-        logger.info(f"[_run_validation_agent] 创建DeepAgent...")
+        checkpointer = self.checkpointer
+        logger.info(f"[_run_validation_agent] 创建DeepAgent checkpointer={'有' if checkpointer else '无'}")
         agent = create_deep_agent(
             model=big_llm,
             backend=lambda _: backend,
             system_prompt=VALIDATION_AGENT_PROMPT,
+            checkpointer=checkpointer,
         )
         
         logger.info(f"[_run_validation_agent] 开始执行Agent ainvoke...")
-        result = await agent.ainvoke({"messages": [("user", prompt)]})
+        invoke_config = config or RunnableConfig(
+            configurable={"thread_id": _get_validation_thread_id(skill.skill_id)}
+        )
+        result = await agent.ainvoke({"messages": [("user", prompt)]}, config=invoke_config)
         logger.info(f"[_run_validation_agent] Agent执行完成")
         
         parsed_result = self._parse_validation_result(result)
@@ -381,6 +482,77 @@ SKILL.md 内容:
             paths = [s.skill_path for s in skills]
             logger.info(f"[_get_approved_skills_paths] 获取已批准skills路径数量: {len(paths)}")
             return paths
+    
+    async def resume_all_pending(self) -> int:
+        """启动时恢复所有未完成的验证，返回恢复的任务数量"""
+        
+        checkpointer = self.checkpointer
+        if not checkpointer:
+            logger.warning("[resume_all_pending] checkpointer未初始化，跳过恢复")
+            return 0
+        
+        with SessionLocal() as db:
+            pending_skills = self.skill_manager.list_all(db, status=STATUS_VALIDATING)
+            logger.info(f"[resume_all_pending] 发现 {len(pending_skills)} 个未完成的验证")
+            
+            resumed_count = 0
+            for skill in pending_skills:
+                thread_id = _get_validation_thread_id(skill.skill_id)
+                config = RunnableConfig(configurable={"thread_id": thread_id})
+                
+                try:
+                    existing_state = await checkpointer.aget(config)
+                    if existing_state is not None:
+                        logger.info(f"[resume_all_pending] 恢复验证 skill_id={skill.skill_id}")
+                        asyncio.create_task(self._resume_validation_task(skill.skill_id, config))
+                        resumed_count += 1
+                    else:
+                        logger.warning(f"[resume_all_pending] skill_id={skill.skill_id} 无checkpoint，标记失败")
+                        self.skill_manager.set_validation_failed(db, skill.skill_id)
+                        db.commit()
+                except Exception as e:
+                    logger.error(f"[resume_all_pending] 检查失败 skill_id={skill.skill_id}: {e}")
+            
+            logger.info(f"[resume_all_pending] 已启动 {resumed_count} 个恢复任务")
+            return resumed_count
+    
+    async def _resume_validation_task(self, skill_id: str, config: RunnableConfig):
+        """独立的恢复任务，在后台执行"""
+        with SessionLocal() as db:
+            skill = self.skill_manager.get(db, skill_id)
+            if not skill:
+                logger.error(f"[_resume_validation_task] skill不存在: {skill_id}")
+                return
+            
+            try:
+                result = await self._validate_layer1(skill, config, resume=True)
+                
+                if result.get("passed"):
+                    logger.info(f"[_resume_validation_task] 恢复验证通过 skill_id={skill_id}")
+                    self.skill_manager.update_validation_result(
+                        db, skill_id,
+                        validation_stage=VALIDATION_STAGE_COMPLETED,
+                        layer1_report=result.get("layer1_report"),
+                        scores=result.get("scores"),
+                        installed_dependencies=result.get("installed_dependencies"),
+                    )
+                else:
+                    logger.warning(f"[_resume_validation_task] 恢复验证未通过 skill_id={skill_id}")
+                    self.skill_manager.set_validation_failed(db, skill_id)
+                
+                db.commit()
+                
+                if self.checkpointer:
+                    try:
+                        await self.checkpointer.adelete(config)
+                        logger.info(f"[_resume_validation_task] 已清理checkpoint skill_id={skill_id}")
+                    except Exception as e:
+                        logger.warning(f"[_resume_validation_task] 清理checkpoint失败: {e}")
+                        
+            except Exception as e:
+                logger.error(f"[_resume_validation_task] 恢复失败 skill_id={skill_id}: {e}\n{traceback.format_exc()}")
+                self.skill_manager.set_validation_failed(db, skill_id)
+                db.commit()
 
 
 _validation_orchestrator = None
