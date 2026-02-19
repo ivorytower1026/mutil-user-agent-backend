@@ -11,9 +11,7 @@ from src.docker_sandbox import DockerSandboxBackend, _to_docker_path
 from src.agent_skills.skill_manager import (
     get_skill_manager,
     VALIDATION_STAGE_COMPLETED,
-    STATUS_VALIDATING,
-    VALIDATION_STAGE_LAYER1,
-    VALIDATION_STAGE_LAYER2
+    STATUS_VALIDATING
 )
 from src.agent_skills.skill_metrics import (
     MetricsCollector, calculate_resource_score, calculate_offline_score,

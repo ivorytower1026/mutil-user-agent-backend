@@ -266,7 +266,7 @@ async def resume_all_pending(self) -> int:
         return 0
     
     with SessionLocal() as db:
-        # 查找所有 validation_stage 是 layer1 或 layer2 的 skill（未完成验证）
+        # 查找所有 status 为 pending 或 validating 的 skill（非终态）
         pending_skills = self.skill_manager.list_pending_validation(db)
         
         resumed_count = 0

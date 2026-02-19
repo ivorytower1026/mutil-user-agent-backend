@@ -164,9 +164,10 @@ class SkillManager:
         return self.list_all(db, status=STATUS_APPROVED)
     
     def list_pending_validation(self, db: Session) -> list[Skill]:
-        """List all skills with incomplete validation (layer1 or layer2 stage)."""
+        """List all skills that may need validation resume (status is pending or validating)."""
         return db.query(Skill).filter(
-            Skill.validation_stage.in_([STATUS_PENDING,STATUS_VALIDATING,VALIDATION_STAGE_LAYER1, VALIDATION_STAGE_LAYER2])
+            Skill.status.in_([STATUS_PENDING, STATUS_VALIDATING])
+            or Skill.validation_stage.in_([VALIDATION_STAGE_LAYER1, VALIDATION_STAGE_LAYER2])
         ).order_by(Skill.created_at.desc()).all()
     
     def approve(self, db: Session, skill_id: str, admin_id: str) -> Skill:
