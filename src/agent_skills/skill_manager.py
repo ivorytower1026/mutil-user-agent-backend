@@ -20,7 +20,6 @@ STATUS_PENDING = "pending"
 STATUS_VALIDATING = "validating"
 STATUS_APPROVED = "approved"
 STATUS_REJECTED = "rejected"
-STATUS_ROLLBACK_PENDING = "rollback_pending"
 
 VALIDATION_STAGE_LAYER1 = "layer1"
 VALIDATION_STAGE_LAYER2 = "layer2"
@@ -163,6 +162,12 @@ class SkillManager:
     def list_approved(self, db: Session) -> list[Skill]:
         """List all approved skills."""
         return self.list_all(db, status=STATUS_APPROVED)
+    
+    def list_pending_validation(self, db: Session) -> list[Skill]:
+        """List all skills with incomplete validation (layer1 or layer2 stage)."""
+        return db.query(Skill).filter(
+            Skill.validation_stage.in_([STATUS_PENDING,STATUS_VALIDATING,VALIDATION_STAGE_LAYER1, VALIDATION_STAGE_LAYER2])
+        ).order_by(Skill.created_at.desc()).all()
     
     def approve(self, db: Session, skill_id: str, admin_id: str) -> Skill:
         """Approve a skill and move to approved directory."""

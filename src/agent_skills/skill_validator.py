@@ -11,7 +11,9 @@ from src.docker_sandbox import DockerSandboxBackend, _to_docker_path
 from src.agent_skills.skill_manager import (
     get_skill_manager,
     VALIDATION_STAGE_COMPLETED,
-    STATUS_VALIDATING
+    STATUS_VALIDATING,
+    VALIDATION_STAGE_LAYER1,
+    VALIDATION_STAGE_LAYER2
 )
 from src.agent_skills.skill_metrics import (
     MetricsCollector, calculate_resource_score, calculate_offline_score,
@@ -492,7 +494,8 @@ SKILL.md 内容:
             return 0
         
         with SessionLocal() as db:
-            pending_skills = self.skill_manager.list_all(db, status=STATUS_VALIDATING)
+            # 查找所有 validation_stage 是 layer1 或 layer2 的 skill（未完成验证）
+            pending_skills = self.skill_manager.list_pending_validation(db)
             logger.info(f"[resume_all_pending] 发现 {len(pending_skills)} 个未完成的验证")
             
             resumed_count = 0

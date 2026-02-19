@@ -66,6 +66,7 @@
 | 文件 | 修改内容 |
 |------|---------|
 | `api/server.py` | 导出 `agent_manager` 供其他模块使用（已存在）|
+| `src/agent_skills/skill_manager.py` | 添加 `list_pending_validation()` 方法 |
 | `src/agent_skills/skill_validator.py` | 1. 导入 `agent_manager`<br>2. 使用 `agent_manager.checkpointer`<br>3. `_validate_layer1` 添加 `resume` 参数支持恢复<br>4. `_run_validation_agent` 传入 `configurable={"thread_id": ...}`<br>5. 添加 `resume_all_pending` 方法（启动时主动恢复）<br>6. 添加 `_resume_validation_task` 方法 |
 | `main.py` | 在 lifespan 中调用 `resume_all_pending()` |
 
@@ -265,8 +266,8 @@ async def resume_all_pending(self) -> int:
         return 0
     
     with SessionLocal() as db:
-        # 查找所有 validating 状态的 skill
-        pending_skills = self.skill_manager.list_all(db, status=STATUS_VALIDATING)
+        # 查找所有 validation_stage 是 layer1 或 layer2 的 skill（未完成验证）
+        pending_skills = self.skill_manager.list_pending_validation(db)
         
         resumed_count = 0
         for skill in pending_skills:

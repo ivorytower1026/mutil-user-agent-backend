@@ -1,3 +1,4 @@
+from datetime import datetime
 import logging
 import uuid
 import os
@@ -25,7 +26,7 @@ def get_logger(name="deepagent_stream", thread_id=None):
     if not logger.handlers:
         log_path = os.path.join(
             log_dir,
-            f"{name}_{thread_id}.log"
+            f"{name}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{thread_id}.log"
         )
 
         handler = logging.FileHandler(log_path, encoding="utf-8")
