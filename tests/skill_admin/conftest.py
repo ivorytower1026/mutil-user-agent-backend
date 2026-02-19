@@ -12,7 +12,7 @@ import tempfile
 import zipfile
 import requests
 
-BASE_URL = "http://localhost:8002"
+BASE_URL = "http://localhost:8005"
 ADMIN_USER = "skill_admin_user"
 ADMIN_PASSWORD = "admin_password_123"
 NORMAL_USER = "skill_normal_user"

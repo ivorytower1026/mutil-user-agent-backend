@@ -153,12 +153,12 @@ class SkillManager:
         """Get a skill by name."""
         return db.query(Skill).filter(Skill.name == name).first()
     
-    def list_all(self, db: Session, status: str | None = None) -> list[Skill]:
-        """List all skills, optionally filtered by status."""
+    def list_all(self, db: Session, status: str | None = None, offset: int = 0, limit: int = 20) -> list[Skill]:
+        """List all skills, optionally filtered by status with pagination."""
         query = db.query(Skill)
         if status:
             query = query.filter(Skill.status == status)
-        return query.order_by(Skill.created_at.desc()).all()
+        return query.order_by(Skill.created_at.desc()).offset(offset).limit(limit).all()
     
     def list_approved(self, db: Session) -> list[Skill]:
         """List all approved skills."""

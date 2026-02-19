@@ -52,6 +52,15 @@ class Skill(Base):
     layer1_passed = Column(Boolean, default=False)
     layer1_report = Column(JSON)
 
+    blind_test_passed = Column(Boolean, default=False)
+    skill_triggered = Column(Boolean, default=False)
+    trigger_accuracy = Column(Float)
+    network_test_passed = Column(Boolean, default=False)
+    offline_capable = Column(Boolean, default=False)
+    blocked_network_calls = Column(Integer, default=0)
+    execution_metrics = Column(JSON)
+    task_results = Column(JSON)
+
     completion_score = Column(Integer)
     trigger_accuracy_score = Column(Integer)
     offline_capability_score = Column(Integer)
