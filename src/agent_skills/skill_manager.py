@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import BinaryIO
 
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 
 from src.database import Skill, SessionLocal
 from src.config import settings
@@ -162,12 +163,13 @@ class SkillManager:
     def list_approved(self, db: Session) -> list[Skill]:
         """List all approved skills."""
         return self.list_all(db, status=STATUS_APPROVED)
-    
+
     def list_pending_validation(self, db: Session) -> list[Skill]:
-        """List all skills that may need validation resume (status is pending or validating)."""
         return db.query(Skill).filter(
-            Skill.status.in_([STATUS_PENDING, STATUS_VALIDATING])
-            or Skill.validation_stage.in_([VALIDATION_STAGE_LAYER1, VALIDATION_STAGE_LAYER2])
+            or_(
+                Skill.status.in_([STATUS_PENDING, STATUS_VALIDATING]),
+                Skill.validation_stage.in_([VALIDATION_STAGE_LAYER1, VALIDATION_STAGE_LAYER2])
+            )
         ).order_by(Skill.created_at.desc()).all()
     
     def approve(self, db: Session, skill_id: str, admin_id: str) -> Skill:
