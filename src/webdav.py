@@ -117,15 +117,23 @@ class WebDAVHandler:
         body: bytes,
         if_match: str | None = None
     ) -> Response:
-        """PUT - Upload file."""
+        """PUT - Upload file with ETag support."""
         sandbox = self._get_sandbox(user_id)
-        sandbox.fs_upload(path, body)
-        return Response(status_code=201)
+        
+        if if_match is not None:
+            current_etag = sandbox.fs_get_etag(path)
+            if current_etag is None:
+                raise HTTPException(status_code=404, detail="File not found for ETag check")
+            if current_etag != if_match:
+                raise HTTPException(status_code=409, detail="ETag mismatch - file was modified")
+        
+        etag = sandbox.fs_upload(path, body)
+        return Response(status_code=201, headers={"ETag": etag})
     
     async def mkcol(self, user_id: str, path: str) -> Response:
         """MKCOL - Create directory."""
         sandbox = self._get_sandbox(user_id)
-        sandbox.execute(f"mkdir -p /workspace/{path}")
+        sandbox.execute(f"mkdir -p /home/daytona/{path}")
         return Response(status_code=201)
     
     async def delete(self, user_id: str, path: str) -> Response:
@@ -140,7 +148,7 @@ class WebDAVHandler:
     async def move(self, user_id: str, src: str, dst: str) -> Response:
         """MOVE - Move or rename file/directory."""
         sandbox = self._get_sandbox(user_id)
-        result = sandbox.execute(f"mv /workspace/{src} /workspace/{dst}")
+        result = sandbox.execute(f"mv /home/daytona/{src} /home/daytona/{dst}")
         if result.exit_code != 0:
             raise HTTPException(status_code=404, detail="Source not found")
         return Response(status_code=201)

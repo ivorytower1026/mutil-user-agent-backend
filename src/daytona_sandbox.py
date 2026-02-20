@@ -1,4 +1,5 @@
 """Daytona Sandbox 后端，实现 BaseSandbox 接口"""
+import hashlib
 from deepagents.backends.sandbox import BaseSandbox
 from deepagents.backends.protocol import (
     ExecuteResponse,
@@ -9,12 +10,18 @@ from deepagents.backends.protocol import (
 WORKSPACE_PATH = "/home/daytona"
 
 
+def _compute_etag(content: bytes) -> str:
+    """计算文件内容的ETag（MD5哈希）"""
+    return f'"{hashlib.md5(content).hexdigest()}"'
+
+
 class DaytonaSandboxBackend(BaseSandbox):
     """Daytona Sandbox 后端"""
     
     def __init__(self, sandbox_id: str, sandbox):
         self.sandbox_id = sandbox_id
         self._sandbox = sandbox
+        self._etags: dict[str, str] = {}
     
     @property
     def id(self) -> str:
@@ -56,9 +63,24 @@ class DaytonaSandboxBackend(BaseSandbox):
         """下载文件"""
         return self._sandbox.fs.download_file(f"{WORKSPACE_PATH}/{path}")
     
-    def fs_upload(self, path: str, content: bytes):
-        """上传文件"""
+    def fs_upload(self, path: str, content: bytes) -> str:
+        """上传文件，返回ETag"""
         self._sandbox.fs.upload_file(content, f"{WORKSPACE_PATH}/{path}")
+        etag = _compute_etag(content)
+        self._etags[path] = etag
+        return etag
+    
+    def fs_get_etag(self, path: str) -> str | None:
+        """获取文件的ETag，如果不在缓存中则下载文件计算"""
+        if path in self._etags:
+            return self._etags[path]
+        try:
+            content = self.fs_download(path)
+            etag = _compute_etag(content)
+            self._etags[path] = etag
+            return etag
+        except Exception:
+            return None
     
     def fs_list(self, path: str) -> list:
         """列出目录"""
@@ -67,6 +89,7 @@ class DaytonaSandboxBackend(BaseSandbox):
     def fs_delete(self, path: str):
         """删除文件"""
         self._sandbox.fs.delete_file(f"{WORKSPACE_PATH}/{path}")
+        self._etags.pop(path, None)
     
     def destroy(self):
         """销毁 Sandbox"""

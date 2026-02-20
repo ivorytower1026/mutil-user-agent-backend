@@ -289,16 +289,17 @@ def test_path_traversal_protection():
 
 
 def cleanup():
-    """Clean up test data."""
-    print("\n[CLEANUP] Removing test directories...")
-    from pathlib import Path
-    from src.config import settings
-    
-    workspace = Path(settings.WORKSPACE_ROOT) / TEST_USER
-    if workspace.exists():
-        import shutil
-        shutil.rmtree(workspace)
-        print(f"  Removed {workspace}")
+    """Clean up test data by destroying Daytona sandbox."""
+    print("\n[CLEANUP] Destroying test sandbox...")
+    try:
+        from src.daytona_sandbox_manager import get_sandbox_manager
+        manager = get_sandbox_manager()
+        if TEST_USER in manager._files_sandboxes:
+            manager._files_sandboxes[TEST_USER].destroy()
+            del manager._files_sandboxes[TEST_USER]
+            print(f"  Destroyed sandbox for {TEST_USER}")
+    except Exception as e:
+        print(f"  Cleanup warning: {e}")
 
 
 def main():

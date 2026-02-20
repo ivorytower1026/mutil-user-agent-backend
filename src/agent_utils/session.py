@@ -2,7 +2,8 @@ import uuid
 from typing import Any
 
 from src.database import SessionLocal, Thread
-from src.docker_sandbox import get_thread_backend
+
+from src.daytona_sandbox_manager import get_sandbox_manager
 
 
 class SessionManager:
@@ -11,7 +12,7 @@ class SessionManager:
 
     def create(self, user_id: str) -> str:
         thread_id = f"{user_id}-{uuid.uuid4()}"
-        get_thread_backend(thread_id)
+        get_sandbox_manager().get_thread_backend(thread_id)
         
         with SessionLocal() as db:
             db.add(Thread(thread_id=thread_id, user_id=user_id))
