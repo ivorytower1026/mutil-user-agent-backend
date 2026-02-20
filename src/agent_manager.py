@@ -10,7 +10,7 @@ from typing import Annotated
 
 from src.config import big_llm, settings, flash_llm
 from src.database import SessionLocal, Thread
-from src.docker_sandbox import get_thread_backend
+from src.daytona_sandbox_manager import get_sandbox_manager
 from src.utils.get_logger import get_logger
 from src.utils.langfuse_monitor import init_langfuse
 
@@ -51,7 +51,7 @@ class AgentManager:
 
         self.compiled_agent = create_deep_agent(
             model=big_llm,
-            backend=lambda runtime: get_thread_backend(
+            backend=lambda runtime: get_sandbox_manager().get_thread_backend(
                 self._get_thread_id(runtime) or "default"
             ),
             checkpointer=self.checkpointer,
@@ -67,7 +67,7 @@ class AgentManager:
             },
             skills=[settings.CONTAINER_SKILLS_DIR],
             system_prompt="""
-            用户的工作目录在/workspace中，若无明确要求，请在/workspace目录【及子目录】下执行操作,
+            用户的工作目录在/home/daytona中，若无明确要求，请在/home/daytona目录【及子目录】下执行操作,
             当你不明确用户需求时，可以调用提问工具向用户提问(可以同时提多个问题)，这个提问工具最多调用两次
             有限尝试使用已有的skill完成任务
             """,

@@ -50,6 +50,12 @@ class Settings(BaseSettings):
     SKILL_PENDING_DIR: str = ""  # 待验证 skill 目录，默认为 {WORKSPACE_ROOT}/skills_pending
     SKILL_APPROVED_DIR: str = ""  # 已入库 skill 目录，默认为 {SHARED_DIR}/skills
 
+    # Daytona 配置
+    DAYTONA_API_KEY: str = "dtn_f8d613fd9319dce9f755730a628c39b4c25d4d2f872f40ca6b503c6d464d348f"
+    DAYTONA_API_URL: str = "http://localhost:3000/api"
+    DAYTONA_AUTO_STOP_INTERVAL: int = 15
+    DAYTONA_FILES_SANDBOX_AUTO_STOP: int = 60
+
     @field_validator("IS_LANGFUSE", mode="before")
     def parse_is_langfuse(cls, v):
         return int(v)

@@ -6,7 +6,6 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "deepagents>=0.3.12",
-    "docker>=7.1.0",
     "fastapi>=0.115.0",
     "uvicorn>=0.32.0",
     "pydantic>=2.10.0",
@@ -25,4 +24,5 @@ dependencies = [
     "python-multipart>=0.0.6",
     "argon2-cffi>=25.1.0",
     "langchain-core>=1.2.9",
+    "daytona>=0.143.0",
 ]

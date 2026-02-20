@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from src.agent_manager import AgentManager
 from src.auth import get_current_user, verify_thread_permission
-from src.docker_sandbox import destroy_thread_backend
+from src.daytona_sandbox_manager import get_sandbox_manager
 from api.models import (
     ChatRequest,
     CreateSessionResponse,
@@ -149,7 +149,7 @@ async def destroy_session(
     """
     verify_thread_permission(user_id, thread_id)
 
-    destroyed = destroy_thread_backend(thread_id)
+    destroyed = get_sandbox_manager().destroy_thread_backend(thread_id)
 
     if not destroyed:
         raise HTTPException(status_code=404, detail="Thread not found")

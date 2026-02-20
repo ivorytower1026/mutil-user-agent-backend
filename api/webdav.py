@@ -4,10 +4,9 @@ from fastapi.responses import Response
 
 from src.webdav import WebDAVHandler
 from src.auth import get_current_user
-from src.config import settings
 
 router = APIRouter()
-webdav = WebDAVHandler(settings.WORKSPACE_ROOT)
+webdav = WebDAVHandler()
 
 
 @router.api_route(
