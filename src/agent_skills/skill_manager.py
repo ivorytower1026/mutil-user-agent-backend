@@ -145,6 +145,75 @@ class SkillManager:
                 shutil.rmtree(temp_dir)
             raise e
     
+    def create_simplified(self, db: Session, file: BinaryIO, admin_id: str, filename: str) -> Skill:
+        """简化上传：只验证基本格式，直接入库到approved目录"""
+        skill_id = str(uuid.uuid4())
+        temp_dir = self.approved_dir / f"temp_{skill_id}"
+        
+        try:
+            temp_dir.mkdir(parents=True, exist_ok=True)
+            
+            zip_path = temp_dir / filename
+            with open(zip_path, 'wb') as f:
+                f.write(file.read())
+            
+            extract_dir = temp_dir / "extracted"
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                zip_ref.extractall(extract_dir)
+            
+            extracted_items = list(extract_dir.iterdir())
+            if len(extracted_items) == 1 and extracted_items[0].is_dir():
+                skill_dir = extracted_items[0]
+            else:
+                skill_dir = extract_dir
+            
+            skill_md_path = skill_dir / "SKILL.md"
+            if not skill_md_path.exists():
+                raise ValueError("Missing SKILL.md")
+            
+            with open(skill_md_path, encoding='utf-8') as f:
+                content = f.read()
+            
+            from deepagents.middleware.skills import _parse_skill_metadata
+            metadata = _parse_skill_metadata(content, str(skill_md_path), skill_dir.name)
+            
+            if not metadata:
+                raise ValueError("Invalid SKILL.md frontmatter (need name and description)")
+            
+            name = metadata.get('name', Path(filename).stem)
+            
+            final_dir = self.approved_dir / name
+            if final_dir.exists():
+                shutil.rmtree(final_dir)
+            shutil.move(str(skill_dir), str(final_dir))
+            shutil.rmtree(temp_dir)
+            
+            skill = Skill(
+                skill_id=skill_id,
+                name=name,
+                display_name=metadata.get('display_name', name),
+                description=metadata.get('description', ''),
+                status=STATUS_APPROVED,
+                skill_path=str(final_dir),
+                format_valid=True,
+                format_errors=[],
+                format_warnings=[],
+                created_by=admin_id,
+                approved_by=admin_id,
+                approved_at=datetime.utcnow(),
+            )
+            
+            db.add(skill)
+            db.commit()
+            db.refresh(skill)
+            
+            return skill
+            
+        except Exception as e:
+            if temp_dir.exists():
+                shutil.rmtree(temp_dir)
+            raise e
+
     def get(self, db: Session, skill_id: str) -> Skill | None:
         """Get a skill by ID."""
         return db.query(Skill).filter(Skill.skill_id == skill_id).first()

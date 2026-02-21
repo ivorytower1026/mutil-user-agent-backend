@@ -150,7 +150,7 @@ async def upload_skill(
     admin: User = Depends(get_admin_user),
     db: Session = Depends(get_db)
 ):
-    """Upload a new skill for validation.
+    """Upload a new skill (simplified: basic format check only, auto-approve).
     
     Args:
         file: ZIP file containing skill
@@ -166,7 +166,11 @@ async def upload_skill(
     manager = get_skill_manager()
     
     try:
-        skill = manager.create(db, file.file, admin.user_id, file.filename)
+        skill = manager.create_simplified(db, file.file, admin.user_id, file.filename)
+        
+        from src.snapshot_manager import get_snapshot_manager
+        get_snapshot_manager().rebuild_skills_snapshot()
+        
         return SkillResponse(
             skill_id=skill.skill_id,
             name=skill.name,
@@ -179,6 +183,8 @@ async def upload_skill(
             format_warnings=skill.format_warnings or [],
             created_at=str(skill.created_at) if skill.created_at else None,
         )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
