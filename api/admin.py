@@ -431,6 +431,40 @@ async def delete_skill(
     return {"message": "Skill deleted"}
 
 
+@router.post("/skills/full-test")
+async def run_full_test(
+    admin: User = Depends(get_admin_user),
+    db: Session = Depends(get_db)
+):
+    """全量测试所有已入库 Skills
+    
+    对每个已批准的 Skill 执行验证测试：
+    - 复用之前验证时的 3 个任务
+    - 新生成 2 个额外任务
+    - 共 5 个任务进行验证
+    
+    Args:
+        admin: Current admin user
+        db: Database session
+        
+    Returns:
+        全量测试启动确认
+    """
+    logger.info(f"[API run_full_test] 收到全量测试请求 admin={admin.user_id}")
+    
+    orchestrator = get_validation_orchestrator()
+    
+    try:
+        asyncio.create_task(orchestrator.run_full_test())
+        return {
+            "status": "started",
+            "message": "Full test started. Check skill statuses for progress."
+        }
+    except Exception as e:
+        logger.error(f"[API run_full_test] 启动失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/skills/{skill_id}/report")
 async def get_skill_report(
     skill_id: str,
@@ -559,6 +593,8 @@ async def rollback_image(
 ):
     """回滚镜像版本
     
+    Note: 镜像管理功能已迁移到 Daytona Snapshot，此接口暂时禁用。
+    
     Args:
         request: Rollback request with target version
         admin: Current admin user
@@ -567,40 +603,7 @@ async def rollback_image(
     Returns:
         Rollback result
     """
-    from src.database import ImageVersion
-    from src.agent_skills.skill_image_manager import get_image_backend
-    
-    image_backend = get_image_backend()
-    
-    target = db.query(ImageVersion).filter(ImageVersion.version == request.target_version).first()
-    if not target:
-        raise HTTPException(status_code=404, detail=f"Version {request.target_version} not found")
-    
-    current = db.query(ImageVersion).filter(ImageVersion.is_current == True).first()
-    affected_skills = []
-    
-    if current:
-        skills = db.query(Skill).filter(
-            Skill.approved_at >= target.created_at
-        ).all()
-        affected_skills = [s.name for s in skills]
-        
-        for skill in skills:
-            skill.status = "rollback_pending"
-        db.commit()
-    
-    try:
-        image_backend.load(request.target_version)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to load image: {e}")
-    
-    db.query(ImageVersion).update({"is_current": False})
-    target.is_current = True
-    db.commit()
-    
-    return {
-        "current_version": current.version if current else None,
-        "target_version": request.target_version,
-        "affected_skills": affected_skills,
-        "message": f"Rollback to {request.target_version} completed"
-    }
+    raise HTTPException(
+        status_code=501, 
+        detail="Image rollback is deprecated. Use Daytona Snapshots instead."
+    )

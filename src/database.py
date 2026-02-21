@@ -74,6 +74,10 @@ class Skill(Base):
 
     regression_results = Column(JSON)
 
+    validation_tasks = Column(JSON)
+    last_full_test_at = Column(DateTime)
+    full_test_results = Column(JSON)
+
     validation_score = Column(Float)
     validation_report = Column(JSON)
     validated_at = Column(DateTime)
