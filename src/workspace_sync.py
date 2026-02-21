@@ -1,5 +1,6 @@
 """实时双向文件同步服务"""
 import asyncio
+from datetime import datetime
 from pathlib import Path
 
 from daytona import FileUpload
@@ -113,7 +114,19 @@ class RealtimeFileSyncService:
                 continue
             
             path = file_info.name
-            remote_mtime = file_info.mod_time.timestamp() if file_info.mod_time else 0
+            
+            if file_info.mod_time:
+                if isinstance(file_info.mod_time, str):
+                    try:
+                        remote_mtime = datetime.fromisoformat(file_info.mod_time.replace('Z', '+00:00')).timestamp()
+                    except Exception:
+                        remote_mtime = 0
+                elif hasattr(file_info.mod_time, 'timestamp'):
+                    remote_mtime = file_info.mod_time.timestamp()
+                else:
+                    remote_mtime = 0
+            else:
+                remote_mtime = 0
             
             if path not in mtimes or mtimes[path] < remote_mtime:
                 local_path = local_workspace / path
