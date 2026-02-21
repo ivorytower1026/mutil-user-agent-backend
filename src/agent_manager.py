@@ -23,6 +23,7 @@ from src.agent_utils.formatter import SSEFormatter, StreamDataFormatter
 from src.agent_utils.interrupt import InterruptHandler
 from src.agent_utils.session import SessionManager
 from src.agent_utils.types import InterruptAction
+from src.workspace_sync import SYNC_WORKSPACE
 
 logger = get_logger("main-agent")
 
@@ -66,8 +67,8 @@ class AgentManager:
                     "description": "Agent 请求用户回答问题"
                 }
             },
-            system_prompt="""
-            用户的工作目录在 /commod_workspace 中，若无明确要求，请在 /commod_workspace 目录【及子目录】下执行操作。
+            system_prompt=f"""
+            用户的工作目录在 {SYNC_WORKSPACE} 中，若无明确要求，请在 {SYNC_WORKSPACE} 目录【及子目录】下执行操作。
             已验证的 Skills 存放在 /skills 目录中，可以直接使用。
             当你不明确用户需求时，可以调用提问工具向用户提问(可以同时提多个问题)，这个提问工具最多调用两次。
             优先尝试使用已有的 skill 完成任务。
