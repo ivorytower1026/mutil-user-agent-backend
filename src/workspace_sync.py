@@ -199,6 +199,7 @@ class RealtimeFileSyncService:
             return False
         
         local_workspace = self._get_user_workspace(user_id)
+        logger.info(f"[FileSync] initial_sync_to_sandbox local_workspace: {local_workspace}")
         
         if not local_workspace.exists():
             self._synced_users.add(user_id)
@@ -208,6 +209,7 @@ class RealtimeFileSyncService:
         for fp in local_workspace.rglob("*"):
             if fp.is_file():
                 relative = fp.relative_to(local_workspace)
+                logger.info(f"[FileSync] initial_sync_to_sandbox relative: {relative}")
                 try:
                     files.append(FileUpload(
                         source=fp.read_bytes(),

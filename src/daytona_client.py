@@ -62,7 +62,7 @@ class DaytonaClient:
     
     def get_or_create_sandbox(self, thread_id: str, user_id: str) -> DaytonaSandbox:
         """获取或创建沙箱（支持会话恢复）"""
-        existing = self.find_sandbox({"thread_id": thread_id, "type": "agent"})
+        existing = self.find_sandbox({"thread_id": thread_id, "type": "agent","user_id": user_id})
         
         if existing:
             logger.info(f"[DaytonaClient] Reusing existing sandbox {existing.id}")
