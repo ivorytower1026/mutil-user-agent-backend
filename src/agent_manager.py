@@ -10,7 +10,7 @@ from typing import Annotated
 
 from src.config import big_llm, settings, flash_llm
 from src.database import SessionLocal, Thread
-from src.daytona_sandbox_manager import get_sandbox_manager
+from src.daytona_client import get_daytona_client
 from src.utils.get_logger import get_logger
 from src.utils.langfuse_monitor import init_langfuse
 
@@ -51,8 +51,9 @@ class AgentManager:
 
         self.compiled_agent = create_deep_agent(
             model=big_llm,
-            backend=lambda runtime: get_sandbox_manager().get_thread_backend(
-                self._get_thread_id(runtime) or "default"
+            backend=lambda runtime: get_daytona_client().get_or_create_sandbox(
+                self._get_thread_id(runtime) or "default",
+                self._get_user_id(runtime) or "default"
             ),
             checkpointer=self.checkpointer,
             tools=[self._create_ask_user_tool()],
@@ -65,11 +66,11 @@ class AgentManager:
                     "description": "Agent 请求用户回答问题"
                 }
             },
-            skills=[settings.CONTAINER_SKILLS_DIR],
             system_prompt="""
-            用户的工作目录在/home/daytona中，若无明确要求，请在/home/daytona目录【及子目录】下执行操作,
-            当你不明确用户需求时，可以调用提问工具向用户提问(可以同时提多个问题)，这个提问工具最多调用两次
-            有限尝试使用已有的skill完成任务
+            用户的工作目录在 /commod_workspace 中，若无明确要求，请在 /commod_workspace 目录【及子目录】下执行操作。
+            已验证的 Skills 存放在 /skills 目录中，可以直接使用。
+            当你不明确用户需求时，可以调用提问工具向用户提问(可以同时提多个问题)，这个提问工具最多调用两次。
+            优先尝试使用已有的 skill 完成任务。
             """,
         )
         
@@ -83,6 +84,15 @@ class AgentManager:
         if config and isinstance(config, dict):
             configurable = config.get("configurable", {})
             return configurable.get("thread_id")
+        return None
+    
+    def _get_user_id(self, runtime: Any) -> str | None:
+        config = getattr(runtime, "config", None)
+        if config and isinstance(config, dict):
+            configurable = config.get("configurable", {})
+            thread_id = configurable.get("thread_id", "")
+            if thread_id and "-" in thread_id:
+                return thread_id.split("-")[0]
         return None
 
     def _create_ask_user_tool(self) -> BaseTool:

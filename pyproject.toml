@@ -25,4 +25,5 @@ dependencies = [
     "argon2-cffi>=25.1.0",
     "langchain-core>=1.2.9",
     "daytona>=0.143.0",
+    "langchain-daytona>=0.0.2",
 ]

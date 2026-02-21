@@ -3,8 +3,6 @@ from typing import Any
 
 from src.database import SessionLocal, Thread
 
-from src.daytona_sandbox_manager import get_sandbox_manager
-
 
 class SessionManager:
     def __init__(self, compiled_agent: Any):
@@ -12,7 +10,6 @@ class SessionManager:
 
     def create(self, user_id: str) -> str:
         thread_id = f"{user_id}-{uuid.uuid4()}"
-        get_sandbox_manager().get_thread_backend(thread_id)
         
         with SessionLocal() as db:
             db.add(Thread(thread_id=thread_id, user_id=user_id))

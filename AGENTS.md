@@ -36,7 +36,7 @@ Tests automatically wait for server on `settings.PORT` and clean up when done.
 - **LangGraph 1.0+**: Agent orchestration framework
 - **DeepAgents 0.3.12+**: Agent toolkit with HITL (Human-in-the-Loop)
 - **PostgreSQL**: Persistent storage with LangGraph checkpoints
-- **Docker**: Sandboxed code execution environment
+- **Daytona**: Sandboxed code execution environment (via langchain-daytona)
 
 ### Directory Structure
 ```
@@ -46,10 +46,12 @@ backend/
 ├── src/                 # Core business logic
 │   ├── config.py        # Settings and LLM instances (big_llm, flash_llm)
 │   ├── agent_manager.py # Agent lifecycle, streaming, SSE formatting
-│   ├── docker_sandbox.py # Docker container management, Windows path handling
+│   ├── daytona_client.py # Daytona SDK wrapper, sandbox creation
+│   ├── snapshot_manager.py # Skills snapshot management
+│   ├── workspace_sync.py # Real-time bidirectional file sync
 │   ├── auth.py          # JWT authentication, password hashing (argon2)
 │   ├── database.py      # SQLAlchemy models (User, Thread, Skill, ImageVersion)
-│   ├── webdav.py        # WebDAV handler implementation
+│   ├── webdav.py        # WebDAV handler (local filesystem)
 │   ├── chunk_upload.py  # Large file chunked upload manager
 │   ├── skill_manager.py # Skill CRUD, validation workflow (v0.1.9)
 │   ├── skill_validator.py # Validation orchestrator with DeepAgents (v0.1.9)
@@ -63,6 +65,7 @@ backend/
 │   ├── admin.py         # Skill admin endpoints (/api/admin/*) (v0.1.9)
 │   ├── files.py         # Chunk upload endpoints (/api/files/*)
 │   ├── webdav.py        # WebDAV routes (/dav/*)
+│   ├── workspace.py     # File sync endpoints (/api/workspace/*) (v0.2.1)
 │   └── models.py        # Pydantic request/response schemas
 └── tests/               # Integration tests
     ├── skill_admin/     # v0.1.9 Skill Admin API tests (24 cases)

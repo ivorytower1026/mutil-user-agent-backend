@@ -14,6 +14,7 @@ from api.auth import router as auth_router
 from api.webdav import router as webdav_router
 from api.files import router as files_router, upload_manager
 from api.admin import router as admin_router
+from api.workspace import router as workspace_router
 from src.database import create_tables
 from src.agent_skills.skill_validator import get_validation_orchestrator
 
@@ -61,6 +62,9 @@ app.include_router(files_router, prefix="/api")
 
 # Include admin router for skill management
 app.include_router(admin_router, prefix="/api/admin", tags=["admin"])
+
+# Include workspace router for file sync
+app.include_router(workspace_router)
 
 
 @app.get("/")

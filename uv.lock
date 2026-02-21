@@ -228,6 +228,7 @@ dependencies = [
     { name = "fastapi" },
     { name = "langchain" },
     { name = "langchain-core" },
+    { name = "langchain-daytona" },
     { name = "langchain-openai" },
     { name = "langfuse" },
     { name = "langgraph" },
@@ -252,6 +253,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "langchain", specifier = ">=1.0.0" },
     { name = "langchain-core", specifier = ">=1.2.9" },
+    { name = "langchain-daytona", specifier = ">=0.0.2" },
     { name = "langchain-openai", specifier = ">=0.2.0" },
     { name = "langfuse", specifier = ">=3.14.1" },
     { name = "langgraph", specifier = ">=1.0.0" },
@@ -1043,6 +1045,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/a6/85/f501592b5d76b27a198f1102bafe365151a0a6f69444122fad6d10e6f4bf/langchain_core-1.2.9.tar.gz", hash = "sha256:a3768febc762307241d153b0f8bc58fd4b70c0ff077fda3274606741fca3f5a7", size = 815900, upload-time = "2026-02-05T14:21:43.942Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/94/46/77846a98913e444d0d564070a9056bd999daada52bd099dc1e8812272810/langchain_core-1.2.9-py3-none-any.whl", hash = "sha256:7e5ecba5ed7a65852e8d5288e9ceeba05340fa9baf32baf672818b497bbaea8f", size = 496296, upload-time = "2026-02-05T14:21:42.816Z" },
+]
+
+[[package]]
+name = "langchain-daytona"
+version = "0.0.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "daytona" },
+    { name = "deepagents" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/84/f1/0440d3bf4c49ca7e07dd42a5756bc73500b4a41e49ba49c15b9c8f927eb0/langchain_daytona-0.0.2.tar.gz", hash = "sha256:0a849a4a27776434c9c29d40d3c2161f6e6354bcd30e11014c72023dc94107f5", size = 188358, upload-time = "2026-02-09T20:26:17.587Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/af/92/1d3af3134e79bb0f19b9c12bdf987b0e786084b948584c51b9328cd3cf2a/langchain_daytona-0.0.2-py3-none-any.whl", hash = "sha256:cc3cf13cc7c2558f22cc255ffed3be6726e860756e15232799524b7ec0f92091", size = 4065, upload-time = "2026-02-09T20:26:16.141Z" },
 ]
 
 [[package]]

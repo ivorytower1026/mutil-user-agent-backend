@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from src.agent_manager import AgentManager
 from src.auth import get_current_user, verify_thread_permission
-from src.daytona_sandbox_manager import get_sandbox_manager
+from src.daytona_client import get_daytona_client
 from api.models import (
     ChatRequest,
     CreateSessionResponse,
@@ -135,7 +135,7 @@ async def destroy_session(
         thread_id: str,
         user_id: str = Depends(get_current_user)
 ):
-    """Destroy a session and its container.
+    """Destroy a session and its sandbox.
 
     Args:
         thread_id: The session/thread ID to destroy
@@ -149,9 +149,11 @@ async def destroy_session(
     """
     verify_thread_permission(user_id, thread_id)
 
-    destroyed = get_sandbox_manager().destroy_thread_backend(thread_id)
-
-    if not destroyed:
-        raise HTTPException(status_code=404, detail="Thread not found")
-
-    return {"status": "destroyed", "thread_id": thread_id}
+    client = get_daytona_client()
+    sandbox = client.find_sandbox({"thread_id": thread_id, "type": "agent"})
+    
+    if sandbox:
+        client.delete_sandbox(sandbox.id)
+        return {"status": "destroyed", "thread_id": thread_id}
+    
+    return {"status": "not_found", "thread_id": thread_id}

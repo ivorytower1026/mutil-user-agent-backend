@@ -11,8 +11,7 @@ import traceback
 from pathlib import Path
 
 from src.config import big_llm
-from src.daytona_sandbox_manager import get_sandbox_manager
-from src.daytona_sandbox import DaytonaSandboxBackend
+from src.daytona_client import get_daytona_client
 from src.agent_skills.skill_manager import (
     get_skill_manager,
     STATUS_VALIDATING,
@@ -139,13 +138,19 @@ class ValidationOrchestrator:
         2. 创建离线 Sandbox → 离线验证
         3. 销毁两个 Sandbox → 计算评分
         """
+        from daytona import CreateSandboxFromSnapshotParams
+        from langchain_daytona import DaytonaSandbox
+        
         logger.info(f"[_validate_single_skill] 开始验证 skill={skill.name}")
         
-        manager = get_sandbox_manager()
+        client = get_daytona_client().client
+        online_sandbox = None
+        offline_sandbox = None
         
         try:
-            online_backend = manager.get_validation_backend(skill.skill_id)
-            logger.info(f"[_validate_single_skill] 联网 Sandbox 已创建")
+            online_sandbox = client.create()
+            online_backend = DaytonaSandbox(sandbox=online_sandbox)
+            logger.info(f"[_validate_single_skill] 联网 Sandbox 已创建 {online_sandbox.id}")
             
             online_result = await self._run_online_validation(online_backend, skill)
             logger.info(f"[_validate_single_skill] 联网验证完成 passed={online_result.get('passed')}")
@@ -165,8 +170,11 @@ class ValidationOrchestrator:
             self.task_store.save_tasks(skill.skill_id, online_result["tasks"])
             logger.info(f"[_validate_single_skill] 任务已保存到数据库")
             
-            offline_backend = manager.get_offline_backend(skill.skill_id)
-            logger.info(f"[_validate_single_skill] 离线 Sandbox 已创建")
+            offline_sandbox = client.create(CreateSandboxFromSnapshotParams(
+                network_block_all=True
+            ))
+            offline_backend = DaytonaSandbox(sandbox=offline_sandbox)
+            logger.info(f"[_validate_single_skill] 离线 Sandbox 已创建 {offline_sandbox.id}")
             
             offline_result = await self._run_offline_validation(
                 offline_backend, skill, online_result["tasks"]
@@ -193,6 +201,10 @@ class ValidationOrchestrator:
                 "assessment": online_result.get("assessment", {})
             }
             
+            if passed:
+                from src.snapshot_manager import get_snapshot_manager
+                get_snapshot_manager().rebuild_skills_snapshot()
+            
             return {
                 "passed": passed,
                 "layer1_report": layer1_report,
@@ -202,11 +214,20 @@ class ValidationOrchestrator:
             
         finally:
             logger.info(f"[_validate_single_skill] 销毁验证 Sandboxes")
-            manager.destroy_validation_backends(skill.skill_id)
+            if online_sandbox:
+                try:
+                    client.delete(online_sandbox)
+                except Exception:
+                    pass
+            if offline_sandbox:
+                try:
+                    client.delete(offline_sandbox)
+                except Exception:
+                    pass
     
     async def _run_online_validation(
         self, 
-        backend: DaytonaSandboxBackend, 
+        backend, 
         skill
     ) -> dict:
         """联网验证
@@ -256,7 +277,7 @@ class ValidationOrchestrator:
     
     async def _run_offline_validation(
         self, 
-        backend: DaytonaSandboxBackend, 
+        backend, 
         skill,
         tasks: list[dict]
     ) -> dict:
