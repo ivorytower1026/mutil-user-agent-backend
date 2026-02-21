@@ -124,6 +124,11 @@ class AgentManager:
         queue: asyncio.Queue[str | None] = asyncio.Queue()
         pending = {'count': 2}
         
+        user_id = thread_id.split("-")[0] if "-" in thread_id else "default"
+        
+        from src.workspace_sync import get_sync_service
+        get_sync_service().start_polling(thread_id, user_id)
+        
         with SessionLocal() as db:
             thread = db.query(Thread).filter(Thread.thread_id == thread_id).first()
             need_title = thread and thread.title is None

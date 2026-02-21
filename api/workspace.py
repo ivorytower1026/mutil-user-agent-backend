@@ -79,26 +79,26 @@ async def start_polling(
     thread_id: str,
     user_id: str = Depends(get_current_user)
 ):
-    """启动文件变更轮询"""
+    """启动文件变更轮询（按 user_id 去重）"""
     if not thread_id.startswith(f"{user_id}-"):
         raise HTTPException(status_code=403, detail="Access denied")
     
     sync_service = get_sync_service()
     sync_service.start_polling(thread_id, user_id)
     
-    return {"status": "started"}
+    return {"status": "started", "user_id": user_id}
 
 
-@router.post("/threads/{thread_id}/polling/stop")
+@router.post("/users/{user_id}/polling/stop")
 async def stop_polling(
-    thread_id: str,
-    user_id: str = Depends(get_current_user)
+    user_id: str,
+    current_user_id: str = Depends(get_current_user)
 ):
-    """停止文件变更轮询"""
-    if not thread_id.startswith(f"{user_id}-"):
+    """停止文件变更轮询（按 user_id）"""
+    if user_id != current_user_id:
         raise HTTPException(status_code=403, detail="Access denied")
     
     sync_service = get_sync_service()
-    sync_service.stop_polling(thread_id)
+    sync_service.stop_polling(user_id)
     
     return {"status": "stopped"}

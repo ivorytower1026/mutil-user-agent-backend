@@ -2,6 +2,7 @@
 import asyncio
 from pathlib import Path
 
+from daytona import FileUpload
 from src.config import settings
 from src.daytona_client import get_daytona_client
 from src.utils.get_logger import get_logger
@@ -23,6 +24,7 @@ class RealtimeFileSyncService:
             cls._instance._sync_tasks: dict[str, asyncio.Task] = {}
             cls._instance._file_mtimes: dict[str, dict[str, float]] = {}
             cls._instance._poll_interval = settings.SYNC_POLL_INTERVAL
+            cls._instance._synced_users: set[str] = set()
             logger.info(f"[FileSync] Initialized, poll_interval={cls._instance._poll_interval}s")
         return cls._instance
     
@@ -53,37 +55,38 @@ class RealtimeFileSyncService:
             logger.warning(f"[FileSync] Delete from sandbox failed: {e}")
     
     def start_polling(self, thread_id: str, user_id: str):
-        """启动轮询任务"""
-        if thread_id in self._sync_tasks:
+        """启动轮询任务（按 user_id 去重）"""
+        if user_id in self._sync_tasks:
             return
         
-        task = asyncio.create_task(self._poll_sandbox_changes(thread_id, user_id))
-        self._sync_tasks[thread_id] = task
-        logger.info(f"[FileSync] Started polling for {thread_id}")
+        task = asyncio.create_task(self._poll_sandbox_changes(user_id))
+        self._sync_tasks[user_id] = task
+        logger.info(f"[FileSync] Started polling for user {user_id}")
     
-    def stop_polling(self, thread_id: str):
+    def stop_polling(self, user_id: str):
         """停止轮询任务"""
-        if thread_id in self._sync_tasks:
-            self._sync_tasks[thread_id].cancel()
-            del self._sync_tasks[thread_id]
-            if thread_id in self._file_mtimes:
-                del self._file_mtimes[thread_id]
-            logger.info(f"[FileSync] Stopped polling for {thread_id}")
+        if user_id in self._sync_tasks:
+            self._sync_tasks[user_id].cancel()
+            del self._sync_tasks[user_id]
+            if user_id in self._file_mtimes:
+                del self._file_mtimes[user_id]
+            self._synced_users.discard(user_id)
+            logger.info(f"[FileSync] Stopped polling for user {user_id}")
     
-    async def _poll_sandbox_changes(self, thread_id: str, user_id: str):
-        """轮询检测沙箱文件变化"""
+    async def _poll_sandbox_changes(self, user_id: str):
+        """轮询检测沙箱文件变化（按 user_id）"""
         while True:
             try:
                 await asyncio.sleep(self._poll_interval)
                 
                 client = get_daytona_client()
-                sandbox_info = client.find_sandbox({"thread_id": thread_id, "type": "agent"})
+                sandbox_info = client.find_sandbox({"user_id": user_id, "type": "agent"})
                 
                 if not sandbox_info:
                     continue
                 
-                sandbox = client.get_or_create_sandbox(thread_id, user_id)
-                await self._check_and_sync_changes(sandbox, user_id, thread_id)
+                sandbox = client.get_or_create_sandbox(sandbox_info.labels.get("thread_id", ""), user_id)
+                await self._check_and_sync_changes(sandbox, user_id)
                 
             except asyncio.CancelledError:
                 break
@@ -91,7 +94,7 @@ class RealtimeFileSyncService:
                 logger.error(f"[FileSync] Polling error: {e}")
                 await asyncio.sleep(10)
     
-    async def _check_and_sync_changes(self, sandbox, user_id: str, thread_id: str):
+    async def _check_and_sync_changes(self, sandbox, user_id: str):
         """检测并同步变化的文件"""
         local_workspace = self._get_user_workspace(user_id)
         
@@ -100,9 +103,9 @@ class RealtimeFileSyncService:
         except Exception:
             return
         
-        if thread_id not in self._file_mtimes:
-            self._file_mtimes[thread_id] = {}
-        mtimes = self._file_mtimes[thread_id]
+        if user_id not in self._file_mtimes:
+            self._file_mtimes[user_id] = {}
+        mtimes = self._file_mtimes[user_id]
         
         changes = []
         for file_info in files:
@@ -176,6 +179,40 @@ class RealtimeFileSyncService:
         
         logger.info(f"[FileSync] Manual sync to daytona: {len(files) - failed} files")
         return {"synced": len(files) - failed, "failed": failed, "errors": errors}
+    
+    def initial_sync_to_sandbox(self, user_id: str, daytona_sandbox) -> bool:
+        """首次同步用户工作空间到沙箱（全量同步）"""
+        if user_id in self._synced_users:
+            return False
+        
+        local_workspace = self._get_user_workspace(user_id)
+        
+        if not local_workspace.exists():
+            self._synced_users.add(user_id)
+            return True
+        
+        files = []
+        for fp in local_workspace.rglob("*"):
+            if fp.is_file():
+                relative = fp.relative_to(local_workspace)
+                try:
+                    files.append(FileUpload(
+                        source=fp.read_bytes(),
+                        destination=f"{SYNC_WORKSPACE}/{relative}"
+                    ))
+                except Exception as e:
+                    logger.warning(f"[FileSync] Failed to read {relative}: {e}")
+        
+        if files:
+            try:
+                daytona_sandbox._sandbox.fs.upload_files(files)
+                logger.info(f"[FileSync] Initial sync for user {user_id}: {len(files)} files")
+            except Exception as e:
+                logger.error(f"[FileSync] Initial sync failed for user {user_id}: {e}")
+                return False
+        
+        self._synced_users.add(user_id)
+        return True
     
     def sync_from_daytona(self, user_id: str, thread_id: str, paths: list[str]) -> dict:
         """手动从沙箱同步文件到本地"""

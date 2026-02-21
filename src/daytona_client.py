@@ -68,7 +68,17 @@ class DaytonaClient:
             logger.info(f"[DaytonaClient] Reusing existing sandbox {existing.id}")
             return DaytonaSandbox(sandbox=existing)
         
-        return self.create_agent_sandbox(thread_id, user_id)
+        daytona_sandbox = self.create_agent_sandbox(thread_id, user_id)
+        
+        self._initial_sync(user_id, daytona_sandbox)
+        
+        return daytona_sandbox
+    
+    def _initial_sync(self, user_id: str, sandbox: DaytonaSandbox):
+        """首次同步用户工作空间到沙箱"""
+        from src.workspace_sync import get_sync_service
+        sync_service = get_sync_service()
+        sync_service.initial_sync_to_sandbox(user_id, sandbox)
     
     def delete_sandbox(self, sandbox_id: str):
         """删除沙箱"""
