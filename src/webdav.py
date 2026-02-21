@@ -23,7 +23,7 @@ class WebDAVHandler:
         self._base_dir = Path(settings.WORKSPACE_ROOT)
     
     def _get_user_dir(self, user_id: str) -> Path:
-        return self._base_dir / user_id / "workspace"
+        return self._base_dir / user_id
     
     def _get_path(self, user_id: str, path: str) -> Path:
         return self._get_user_dir(user_id) / path

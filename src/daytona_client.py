@@ -31,16 +31,20 @@ class DaytonaClient:
         
         snapshot_id = get_snapshot_manager().get_current_snapshot_id()
         
-        params = CreateSandboxFromSnapshotParams(
-            labels={"type": "agent", "thread_id": thread_id, "user_id": user_id},
-            auto_stop_interval=settings.DAYTONA_AUTO_STOP_INTERVAL,
-            auto_delete_interval=settings.DAYTONA_AUTO_STOP_INTERVAL * 2,
-        )
-        
         if snapshot_id:
-            params.snapshot_id = snapshot_id
+            params = CreateSandboxFromSnapshotParams(
+                snapshot=snapshot_id,
+                labels={"type": "agent", "thread_id": thread_id, "user_id": user_id},
+                auto_stop_interval=settings.DAYTONA_AUTO_STOP_INTERVAL,
+                auto_delete_interval=settings.DAYTONA_AUTO_STOP_INTERVAL * 2,
+            )
             logger.info(f"[DaytonaClient] Creating sandbox from snapshot {snapshot_id[:8]}...")
         else:
+            params = CreateSandboxFromSnapshotParams(
+                labels={"type": "agent", "thread_id": thread_id, "user_id": user_id},
+                auto_stop_interval=settings.DAYTONA_AUTO_STOP_INTERVAL,
+                auto_delete_interval=settings.DAYTONA_AUTO_STOP_INTERVAL * 2,
+            )
             logger.info("[DaytonaClient] Creating sandbox with default image")
         
         sandbox = self._client.create(params)

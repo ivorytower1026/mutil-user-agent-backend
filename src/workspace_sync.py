@@ -27,7 +27,7 @@ class RealtimeFileSyncService:
         return cls._instance
     
     def _get_user_workspace(self, user_id: str) -> Path:
-        return self._base_dir / user_id / "workspace"
+        return self._base_dir / user_id
     
     def on_local_file_change(self, user_id: str, thread_id: str, path: str, content: bytes):
         """本地文件变化时触发（WebDAV PUT 调用）"""
