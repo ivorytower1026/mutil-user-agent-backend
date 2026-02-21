@@ -22,11 +22,6 @@ async def lifespan(app: FastAPI):
     create_tables()
     await agent_manager.init()
     
-    orchestrator = get_validation_orchestrator()
-    resumed_count = await orchestrator.resume_all_pending()
-    if resumed_count > 0:
-        print(f"[Startup] Resumed {resumed_count} pending validations")
-    
     cleaned = upload_manager.cleanup_stale()
     if cleaned > 0:
         print(f"[Startup] Cleaned up {cleaned} stale upload sessions")

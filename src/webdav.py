@@ -37,13 +37,13 @@ class WebDAVHandler:
         
         return self._xml_to_string(multistatus)
     
-    def _add_response_element(self, parent: ET.Element, user_id: str, base_path: str, file_info: dict):
+    def _add_response_element(self, parent: ET.Element, user_id: str, base_path: str, file_info):
         """Add a response element to the multistatus XML."""
         response = ET.SubElement(parent, f"{self.WEBDAV_NS}response")
         
         href = ET.SubElement(response, f"{self.WEBDAV_NS}href")
-        name = file_info.get('name', 'unknown')
-        is_dir = file_info.get('is_dir', False)
+        name = file_info.name
+        is_dir = file_info.is_dir
         href_path = f"/dav/{user_id}/{base_path}/{name}".replace("//", "/")
         if is_dir and not href_path.endswith('/'):
             href_path += '/'
@@ -64,7 +64,7 @@ class WebDAVHandler:
         
         if not is_dir:
             getcontentlength = ET.SubElement(prop, f"{self.WEBDAV_NS}getcontentlength")
-            getcontentlength.text = str(file_info.get('size', 0))
+            getcontentlength.text = str(file_info.size or 0)
         
         status = ET.SubElement(propstat, f"{self.WEBDAV_NS}status")
         status.text = "HTTP/1.1 200 OK"
