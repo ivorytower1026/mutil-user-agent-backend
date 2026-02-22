@@ -202,6 +202,7 @@ class RealtimeFileSyncService:
         logger.info(f"[FileSync] initial_sync_to_sandbox local_workspace: {local_workspace}")
         
         if not local_workspace.exists():
+            logger.info("[FileSync] initial_sync_to_sandbox not local_workspace")
             self._synced_users.add(user_id)
             return True
         

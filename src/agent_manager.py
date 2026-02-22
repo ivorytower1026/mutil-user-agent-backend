@@ -88,12 +88,9 @@ class AgentManager:
         return None
     
     def _get_user_id(self, runtime: Any) -> str | None:
-        config = getattr(runtime, "config", None)
-        if config and isinstance(config, dict):
-            configurable = config.get("configurable", {})
-            thread_id = configurable.get("thread_id", "")
-            if thread_id and "-" in thread_id:
-                return thread_id.split("-")[0]
+        thread_id = self._get_thread_id(runtime)
+        if thread_id and len(thread_id) > 37:
+            return thread_id[:36]
         return None
 
     def _create_ask_user_tool(self) -> BaseTool:
@@ -124,7 +121,7 @@ class AgentManager:
         queue: asyncio.Queue[str | None] = asyncio.Queue()
         pending = {'count': 2}
         
-        user_id = thread_id.split("-")[0] if "-" in thread_id else "default"
+        user_id = thread_id[:36] if len(thread_id) > 37 else "default"
         
         from src.workspace_sync import get_sync_service
         get_sync_service().start_polling(thread_id, user_id)
