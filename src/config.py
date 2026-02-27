@@ -50,6 +50,8 @@ class Settings(BaseSettings):
     SKILL_PENDING_DIR: str = ""  # 待验证 skill 目录，默认为 {WORKSPACE_ROOT}/skills_pending
     SKILL_APPROVED_DIR: str = ""  # 已入库 skill 目录，默认为 {SHARED_DIR}/skills
 
+    SKILL_DIR: str = ""
+
     @field_validator("IS_LANGFUSE", mode="before")
     def parse_is_langfuse(cls, v):
         return int(v)

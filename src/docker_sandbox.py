@@ -188,7 +188,8 @@ class DockerSandboxBackend(BaseSandbox):
         shared_dir = str(Path(settings.SHARED_DIR).expanduser().absolute())
         os.makedirs(shared_dir, exist_ok=True)
         
-        skills_dir = os.path.join(shared_dir, "skills")
+        skills_dir = str(Path(settings.SKILL_DIR).expanduser().absolute())
+
         os.makedirs(skills_dir, exist_ok=True)
         
         return self.client.containers.create(
