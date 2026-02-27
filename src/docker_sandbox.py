@@ -44,12 +44,14 @@ _thread_backends: dict[str, "DockerSandboxBackend"] = {}
 def get_thread_backend(thread_id: str) -> "DockerSandboxBackend":
     """Get or create a thread-level backend.
 
-    Each thread has its own container and workspace.
-    Workspace directory: workspaces/{thread_id}/
+    Each thread has its own container, but shares workspace with other threads of same user.
+    Workspace directory: workspaces/{user_id}/
     """
+    user_id = thread_id[:36]
+
     if thread_id not in _thread_backends:
         workspace_dir = os.path.join(
-            Path(settings.WORKSPACE_ROOT).expanduser().absolute(), thread_id
+            Path(settings.WORKSPACE_ROOT).expanduser().absolute(), user_id
         )
         os.makedirs(workspace_dir, exist_ok=True)
         _thread_backends[thread_id] = DockerSandboxBackend(thread_id, workspace_dir)
@@ -218,7 +220,6 @@ class DockerSandboxBackend(BaseSandbox):
         os.makedirs(shared_dir, exist_ok=True)
         
         skills_dir = str(Path(settings.SKILL_DIR).expanduser().absolute())
-
         os.makedirs(skills_dir, exist_ok=True)
 
         return self.client.containers.create(

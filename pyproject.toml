@@ -25,4 +25,5 @@ dependencies = [
     "argon2-cffi>=25.1.0",
     "langchain-core>=1.2.9",
     "deepagents==0.3.4",
+    "redis>=5.0",
 ]
