@@ -16,32 +16,51 @@ from api.files import router as files_router, upload_manager
 from api.admin import router as admin_router
 from src.database import create_tables
 from src.agent_skills.skill_validator import get_validation_orchestrator
+from src.docker_sandbox import DockerSandboxBackend
+
+
+async def _cleanup_idle_containers_task():
+    """Background task to clean up idle containers."""
+    while True:
+        await asyncio.sleep(60)
+        try:
+            cleaned = DockerSandboxBackend.cleanup_idle_containers()
+            if cleaned > 0:
+                print(f"[CleanupTask] Cleaned up {cleaned} idle containers")
+        except Exception as e:
+            print(f"[CleanupTask] Error: {e}")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     create_tables()
     await agent_manager.init()
-    
+
     orchestrator = get_validation_orchestrator()
     resumed_count = await orchestrator.resume_all_pending()
     if resumed_count > 0:
         print(f"[Startup] Resumed {resumed_count} pending validations")
-    
+
     cleaned = upload_manager.cleanup_stale()
     if cleaned > 0:
         print(f"[Startup] Cleaned up {cleaned} stale upload sessions")
-    
+
+    cleanup_task = asyncio.create_task(_cleanup_idle_containers_task())
+    print("[Startup] Container cleanup task started")
+
     try:
         yield
     finally:
+        cleanup_task.cancel()
         await agent_manager.close()
         print("[Shutdown] Agent manager closed")
+
 
 app = FastAPI(
     title="Multi-tenant AI Agent Platform",
     description="Backend service for AI coding agents",
     version="0.1.9",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -81,15 +100,10 @@ async def root():
             "resume": "POST /api/resume/{thread_id}",
             "webdav": "/dav/{path} (PROPFIND/GET/PUT/MKCOL/DELETE/MOVE)",
             "chunk_upload": "/api/files/init-upload, /api/files/upload-chunk, /api/files/complete-upload",
-            "admin_skills": "/api/admin/skills (GET, POST /upload, GET/POST/DELETE /{skill_id})"
-        }
+            "admin_skills": "/api/admin/skills (GET, POST /upload, GET/POST/DELETE /{skill_id})",
+        },
     }
 
 
 if __name__ == "__main__":
-    uvicorn.run(
-        "main:app",
-        host="0.0.0.0",
-        port=settings.PORT,
-        reload=True
-    )
+    uvicorn.run("main:app", host="0.0.0.0", port=settings.PORT, reload=True)

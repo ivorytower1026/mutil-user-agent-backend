@@ -47,10 +47,20 @@ class Settings(BaseSettings):
     # Skill 验证相关配置
     SKILL_IMAGES_DIR: str = "D:\\docker_volume\\mutil-user-agent\\skill-images"
     SKILL_IMAGE_VERSIONS_TO_KEEP: int = 5
-    SKILL_PENDING_DIR: str = ""  # 待验证 skill 目录，默认为 {WORKSPACE_ROOT}/skills_pending
+    SKILL_PENDING_DIR: str = (
+        ""  # 待验证 skill 目录，默认为 {WORKSPACE_ROOT}/skills_pending
+    )
     SKILL_APPROVED_DIR: str = ""  # 已入库 skill 目录，默认为 {SHARED_DIR}/skills
 
     SKILL_DIR: str = ""
+
+    # Docker 资源限制
+    DOCKER_CPU_LIMIT: float = 1.0  # CPU 核数
+    DOCKER_MEMORY_LIMIT: str = "2g"  # 内存限制
+
+    # 沙箱超时配置
+    DOCKER_IDLE_TIMEOUT_SECONDS: int = 600  # 10 分钟无操作自动清理
+    REDIS_URL: str = "redis://localhost:6379/0"
 
     @field_validator("IS_LANGFUSE", mode="before")
     def parse_is_langfuse(cls, v):
