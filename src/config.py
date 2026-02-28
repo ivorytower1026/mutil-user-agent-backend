@@ -62,6 +62,8 @@ class Settings(BaseSettings):
     DOCKER_IDLE_TIMEOUT_SECONDS: int = 600  # 10 分钟无操作自动清理
     REDIS_URL: str = "redis://localhost:6379/0"
 
+    LLM_MODE: int
+
     @field_validator("IS_LANGFUSE", mode="before")
     def parse_is_langfuse(cls, v):
         return int(v)
@@ -124,5 +126,9 @@ llm_modelscope_qwen3_vl_30b_a3b_instruct = ChatOpenAI(
     max_tokens=1024,
 )
 
-big_llm = llm_glm_5
-flash_llm = llm_modelscope_qwen3_vl_30b_a3b_instruct
+if settings.LLM_MODE==1:
+    big_llm = llm_glm_5
+    flash_llm = llm_modelscope_qwen3_vl_30b_a3b_instruct
+else:
+    big_llm = llm_minimax_m2_1
+    flash_llm = llm_qwen3_vl_30b_a3b_instruct

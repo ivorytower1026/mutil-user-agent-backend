@@ -4,7 +4,7 @@ from typing import Any, AsyncIterator
 from langchain_core.runnables import RunnableConfig
 from langgraph.types import Command
 
-from .types import InterruptAction, TOOL_ASK_USER
+from .types import InterruptAction, TOOL_ASK_USER, AUTO_APPROVE_TOOLS
 from .formatter import SSEFormatter
 
 logger = logging.getLogger(__name__)
@@ -21,6 +21,7 @@ class InterruptHandler:
         action: InterruptAction,
         answers: list[str] | None = None,
         langfuse_handler: Any = None,
+        mode: str = "build",
     ) -> AsyncIterator[str]:
         if action not in [InterruptAction.CONTINUE, InterruptAction.CANCEL, InterruptAction.ANSWER]:
             raise ValueError("Action must be 'continue', 'cancel' or 'answer'")
@@ -33,36 +34,107 @@ class InterruptHandler:
         snapshot = await self.agent.aget_state(config)
         current_tool = self.extract_tool_name(snapshot)
 
-        logger.debug("Resuming interrupt: thread_id=%s, action=%s, tool=%s", thread_id, action, current_tool)
+        logger.debug("Resuming interrupt: thread_id=%s, action=%s, tool=%s, mode=%s", thread_id, action, current_tool, mode)
 
-        resume_command = self._build_resume_command(
+        resume_command = self._build_initial_resume_command(
             action=action,
             current_tool=current_tool,
             answers=answers,
             snapshot=snapshot,
+            mode=mode,
         )
         
         if resume_command is None:
-            async for error_event in self._yield_validation_errors(action, current_tool, answers):
-                yield error_event
+            if current_tool in AUTO_APPROVE_TOOLS and mode == "plan":
+                yield self.sse.make_error_event("当前为思考模式，请切换到 build 模式执行操作")
+            else:
+                async for error_event in self._yield_validation_errors(action, current_tool, answers):
+                    yield error_event
             return
 
+        current_input = resume_command
+        
         try:
-            async for chunk in self.agent.astream(
-                resume_command,
-                config=config,
-                stream_mode=["messages", "updates"],
-                subgraphs=True,
-            ):
-                formatted = self._format_chunk(chunk)
-                if formatted:
-                    yield formatted
+            while True:
+                auto_resume = False
+                
+                async for chunk in self.agent.astream(
+                    current_input,
+                    config=config,
+                    stream_mode=["messages", "updates"],
+                    subgraphs=True,
+                ):
+                    interrupt_tool = self._extract_interrupt_tool_from_chunk(chunk)
+                    
+                    if interrupt_tool in AUTO_APPROVE_TOOLS:
+                        if mode == "build":
+                            auto_resume = True
+                            break
+                        else:
+                            formatted = self._format_chunk(chunk)
+                            if formatted:
+                                yield formatted
+                            await self.agent.ainvoke(
+                                Command(resume={"decisions": [{"type": "reject"}]}), config
+                            )
+                            yield self.sse.make_error_event("当前为思考模式，请切换到 build 模式执行操作")
+                            yield self.sse.make_done_event("error")
+                            return
+                    else:
+                        formatted = self._format_chunk(chunk)
+                        if formatted:
+                            yield formatted
+                
+                if auto_resume:
+                    current_input = Command(resume={"decisions": [{"type": "approve"}]})
+                else:
+                    break
         except Exception as e:
             logger.exception("Error in stream_resume_interrupt")
             yield self.sse.make_error_event(f"{type(e).__name__}: {str(e)}")
             return
         finally:
             yield self.sse.make_done_event(action)
+
+    def _build_initial_resume_command(
+        self,
+        action: InterruptAction,
+        current_tool: str | None,
+        answers: list[str] | None,
+        snapshot: Any,
+        mode: str,
+    ) -> Command | None:
+        if current_tool in AUTO_APPROVE_TOOLS:
+            if mode == "build":
+                return Command(resume={"decisions": [{"type": "approve"}]})
+            else:
+                return None
+        else:
+            return self._build_resume_command(action, current_tool, answers, snapshot)
+
+    def _extract_interrupt_tool_from_chunk(self, chunk: Any) -> str | None:
+        if not isinstance(chunk, tuple) or len(chunk) != 3:
+            return None
+        
+        mode = chunk[1]
+        data = chunk[2]
+        
+        if mode != "updates":
+            return None
+        
+        if not isinstance(data, dict) or "__interrupt__" not in data:
+            return None
+        
+        interrupt_list = data.get("__interrupt__", [])
+        if not interrupt_list:
+            return None
+        
+        interrupt = interrupt_list[0]
+        requests = interrupt.value.get("action_requests", [])
+        if not requests:
+            return None
+        
+        return requests[0].get("name")
 
     def _build_resume_command(
         self,

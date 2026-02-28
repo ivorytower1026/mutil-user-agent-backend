@@ -222,7 +222,8 @@ class AgentManager:
         self, 
         thread_id: str, 
         action: str,
-        answers: list[str] | None = None
+        answers: list[str] | None = None,
+        mode: str = "build"
     ) -> AsyncIterator[str]:
         handler, _ = init_langfuse()
         
@@ -231,6 +232,7 @@ class AgentManager:
             action=InterruptAction(action),
             answers=answers,
             langfuse_handler=handler if handler else None,
+            mode=mode,
         ):
             yield chunk
 

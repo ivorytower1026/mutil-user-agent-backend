@@ -38,6 +38,9 @@ class InternalEventType(StrEnum):
 TOOL_EXECUTE = "execute"
 TOOL_WRITE_FILE = "write_file"
 TOOL_ASK_USER = "ask_user"
+TOOL_EDIT_FILE = "edit_file"
+
+AUTO_APPROVE_TOOLS = {TOOL_EXECUTE, TOOL_WRITE_FILE, TOOL_EDIT_FILE}
 
 TASK_DISPLAY_NAMES: dict[str, str] = {
     TOOL_EXECUTE: "执行命令",

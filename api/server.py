@@ -92,7 +92,7 @@ async def stream_resume_interrupt(
 
     async def event_generator() -> AsyncGenerator[str, None]:
         async for chunk in agent_manager.stream_resume_interrupt(
-            thread_id, request.action, request.answers
+            thread_id, request.action, request.answers, request.mode
         ):
             yield chunk
 
