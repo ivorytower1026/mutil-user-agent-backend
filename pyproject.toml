@@ -1,6 +1,6 @@
 [project]
 name = "backend"
-version = "0.1.0"
+version = "0.2.0"
 description = "Multi-tenant AI Agent Platform"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -27,4 +27,5 @@ dependencies = [
     "deepagents==0.3.4",
     "redis>=5.0",
     "mem0ai>=1.0.4",
+    "mcp>=1.0.0",
 ]

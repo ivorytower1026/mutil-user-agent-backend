@@ -14,6 +14,8 @@ from api.auth import router as auth_router
 from api.webdav import router as webdav_router
 from api.files import router as files_router, upload_manager
 from api.admin import router as admin_router
+from api.mcp import router as mcp_router
+from api.agent_config import router as agent_config_router
 from src.database import create_tables
 from src.agent_skills.skill_validator import get_validation_orchestrator
 from src.docker_sandbox import DockerSandboxBackend
@@ -86,12 +88,18 @@ app.include_router(files_router, prefix="/api")
 # Include admin router for skill management
 app.include_router(admin_router, prefix="/api/admin", tags=["admin"])
 
+# Include MCP router for MCP server management
+app.include_router(mcp_router, prefix="/api/admin/mcp", tags=["mcp"])
+
+# Include agent config router for agent configuration management
+app.include_router(agent_config_router, prefix="/api/admin/agents", tags=["agents"])
+
 
 @app.get("/")
 async def root():
     return {
         "message": "Multi-tenant AI Agent Platform",
-        "version": "0.1.9",
+        "version": "0.2.0",
         "endpoints": {
             "register": "POST /api/auth/register",
             "login": "POST /api/auth/login",
@@ -101,6 +109,9 @@ async def root():
             "webdav": "/dav/{path} (PROPFIND/GET/PUT/MKCOL/DELETE/MOVE)",
             "chunk_upload": "/api/files/init-upload, /api/files/upload-chunk, /api/files/complete-upload",
             "admin_skills": "/api/admin/skills (GET, POST /upload, GET/POST/DELETE /{skill_id})",
+            "admin_skills_simple": "/api/admin/skills/simple (GET, POST /upload, DELETE /{name})",
+            "admin_mcp": "/api/admin/mcp (GET, POST, GET/PUT/DELETE /{name})",
+            "admin_agents": "/api/admin/agents (GET, PUT /main, POST/GET/PUT/DELETE /subagents/{name})",
         },
     }
 

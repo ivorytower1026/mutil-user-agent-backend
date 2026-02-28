@@ -1,4 +1,5 @@
 """Admin API endpoints for skill management."""
+
 import asyncio
 from typing import Optional
 
@@ -8,10 +9,7 @@ from sqlalchemy.orm import Session
 
 from src.database import get_db, User, Skill
 from src.auth import get_current_user
-from src.agent_skills.skill_manager import (
-    get_skill_manager,
-    STATUS_PENDING
-)
+from src.agent_skills.skill_manager import get_skill_manager, STATUS_PENDING
 from src.agent_skills.skill_validator import get_validation_orchestrator
 from src.utils.get_logger import get_logger
 
@@ -20,8 +18,7 @@ logger = get_logger("valid-agent-skill")
 
 
 async def get_admin_user(
-    token: str = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    token: str = Depends(get_current_user), db: Session = Depends(get_db)
 ) -> User:
     """Get current user and verify admin status."""
     user = db.query(User).filter(User.user_id == token).first()
@@ -34,6 +31,7 @@ async def get_admin_user(
 
 class SkillResponse(BaseModel):
     """Skill response model."""
+
     skill_id: str
     name: str
     display_name: Optional[str] = None
@@ -68,13 +66,14 @@ class SkillResponse(BaseModel):
     execution_metrics: Optional[dict] = None
     task_results: Optional[list] = None
     regression_results: Optional[dict] = None
-    
+
     class Config:
         from_attributes = True
 
 
 class SkillListResponse(BaseModel):
     """Skill list response."""
+
     skills: list[SkillResponse]
     total: int
     page: int = 1
@@ -83,14 +82,14 @@ class SkillListResponse(BaseModel):
 
 def _extract_skill_response(skill: Skill) -> SkillResponse:
     """从 Skill 模型提取响应数据，包括从 layer1_report/layer2_report 提取字段"""
-    
+
     layer1_report = skill.layer1_report or {}
     layer2_report = skill.layer2_report or {}
-    
+
     online_test = layer1_report.get("online_blind_test", {})
     offline_test = layer1_report.get("offline_blind_test", {})
     metrics = layer1_report.get("metrics", {})
-    
+
     return SkillResponse(
         skill_id=skill.skill_id,
         name=skill.name,
@@ -131,16 +130,19 @@ def _extract_skill_response(skill: Skill) -> SkillResponse:
 
 class ApproveRequest(BaseModel):
     """Approve request."""
+
     pass
 
 
 class RejectRequest(BaseModel):
     """Reject request."""
+
     reason: str
 
 
 class ValidateRequest(BaseModel):
     """Validate request."""
+
     pass
 
 
@@ -148,23 +150,23 @@ class ValidateRequest(BaseModel):
 async def upload_skill(
     file: UploadFile = File(...),
     admin: User = Depends(get_admin_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """Upload a new skill for validation.
-    
+
     Args:
         file: ZIP file containing skill
         admin: Current admin user
         db: Database session
-        
+
     Returns:
         Created skill
     """
-    if not file.filename or not file.filename.endswith('.zip'):
+    if not file.filename or not file.filename.endswith(".zip"):
         raise HTTPException(status_code=400, detail="File must be a ZIP file")
-    
+
     manager = get_skill_manager()
-    
+
     try:
         skill = manager.create(db, file.file, admin.user_id, file.filename)
         return SkillResponse(
@@ -190,10 +192,10 @@ async def list_skills(
     page: int = 1,
     size: int = 20,
     admin: User = Depends(get_admin_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """List all skills with pagination.
-    
+
     Args:
         status: Filter by status (optional)
         validation_stage: Filter by validation stage (optional)
@@ -201,92 +203,292 @@ async def list_skills(
         size: Page size (default 20)
         admin: Current admin user
         db: Database session
-        
+
     Returns:
         List of skills with pagination
     """
     manager = get_skill_manager()
-    
+
     offset = (page - 1) * size
-    
+
     total_query = db.query(Skill)
     if status:
         total_query = total_query.filter(Skill.status == status)
     if validation_stage:
         total_query = total_query.filter(Skill.validation_stage == validation_stage)
     total = total_query.count()
-    
+
     skills = manager.list_all(db, status=status, offset=offset, limit=size)
-    
+
     return SkillListResponse(
         skills=[_extract_skill_response(s) for s in skills],
         total=total,
         page=page,
-        size=size
+        size=size,
     )
 
 
+class SimpleSkillResponse(BaseModel):
+    """Simple skill response model."""
 
-@router.get("/skills/{skill_id}", response_model=SkillResponse)
-async def get_skill(
-    skill_id: str,
+    skill_id: str
+    name: str
+    display_name: Optional[str] = None
+    description: Optional[str] = None
+    status: str
+    format_valid: bool = False
+    format_errors: list = []
+    format_warnings: list = []
+    created_at: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class SimpleSkillListResponse(BaseModel):
+    """Simple skill list response."""
+
+    skills: list[SimpleSkillResponse]
+    total: int
+
+
+@router.post("/skills/simple/upload", response_model=SimpleSkillResponse)
+async def upload_skill_simple(
+    file: UploadFile = File(...),
     admin: User = Depends(get_admin_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    """Get skill by ID.
-    
+    """Upload a skill directly without validation.
+
+    Args:
+        file: ZIP file containing skill
+        admin: Current admin user
+        db: Database session
+
+    Returns:
+        Created skill
+    """
+    if not file.filename or not file.filename.endswith(".zip"):
+        raise HTTPException(status_code=400, detail="File must be a ZIP file")
+
+    from src.simple_skill_manager import get_simple_skill_manager
+
+    manager = get_simple_skill_manager()
+
+    try:
+        skill = manager.upload(db, file.file, file.filename, admin.user_id)
+        return SimpleSkillResponse(
+            skill_id=skill.skill_id,
+            name=skill.name,
+            display_name=skill.display_name,
+            description=skill.description,
+            status=skill.status,
+            format_valid=skill.format_valid,
+            format_errors=skill.format_errors or [],
+            format_warnings=skill.format_warnings or [],
+            created_at=str(skill.created_at) if skill.created_at else None,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/skills/simple", response_model=SimpleSkillListResponse)
+async def list_skills_simple(
+    status: Optional[str] = None,
+    admin: User = Depends(get_admin_user),
+    db: Session = Depends(get_db),
+):
+    """List all skills (simple mode).
+
+    Args:
+        status: Filter by status (optional)
+        admin: Current admin user
+        db: Database session
+
+    Returns:
+        List of skills
+    """
+    from src.simple_skill_manager import get_simple_skill_manager
+
+    manager = get_simple_skill_manager()
+    skills = manager.list_all(db, status=status)
+
+    return SimpleSkillListResponse(
+        skills=[
+            SimpleSkillResponse(
+                skill_id=s.skill_id,
+                name=s.name,
+                display_name=s.display_name,
+                description=s.description,
+                status=s.status,
+                format_valid=s.format_valid,
+                format_errors=s.format_errors or [],
+                format_warnings=s.format_warnings or [],
+                created_at=str(s.created_at) if s.created_at else None,
+            )
+            for s in skills
+        ],
+        total=len(skills),
+    )
+
+
+@router.delete("/skills/simple/{name}")
+async def delete_skill_simple(
+    name: str, admin: User = Depends(get_admin_user), db: Session = Depends(get_db)
+):
+    """Delete a skill by name (simple mode).
+
+    Args:
+        name: Skill name
+        admin: Current admin user
+        db: Database session
+
+    Returns:
+        Success message
+    """
+    from src.simple_skill_manager import get_simple_skill_manager
+
+    manager = get_simple_skill_manager()
+
+    if not manager.delete_by_name(db, name):
+        raise HTTPException(status_code=404, detail=f"Skill '{name}' not found")
+
+    return {"message": f"Skill '{name}' deleted"}
+
+
+@router.post("/skills/simple/{skill_id}/disable")
+async def disable_skill_simple(
+    skill_id: str, admin: User = Depends(get_admin_user), db: Session = Depends(get_db)
+):
+    """Disable a skill (simple mode).
+
     Args:
         skill_id: Skill ID
         admin: Current admin user
         db: Database session
-        
+
+    Returns:
+        Updated skill
+    """
+    from src.simple_skill_manager import get_simple_skill_manager
+
+    manager = get_simple_skill_manager()
+    skill = manager.disable(db, skill_id)
+
+    if not skill:
+        raise HTTPException(status_code=404, detail="Skill not found")
+
+    return {"skill_id": skill.skill_id, "status": skill.status}
+
+
+@router.post("/skills/simple/{skill_id}/enable")
+async def enable_skill_simple(
+    skill_id: str, admin: User = Depends(get_admin_user), db: Session = Depends(get_db)
+):
+    """Enable a skill (simple mode).
+
+    Args:
+        skill_id: Skill ID
+        admin: Current admin user
+        db: Database session
+
+    Returns:
+        Updated skill
+    """
+    from src.simple_skill_manager import get_simple_skill_manager
+
+    manager = get_simple_skill_manager()
+    skill = manager.enable(db, skill_id)
+
+    if not skill:
+        raise HTTPException(status_code=404, detail="Skill not found")
+
+    return {"skill_id": skill.skill_id, "status": skill.status}
+
+
+@router.post("/skills/simple/sync")
+async def sync_skills_simple(
+    admin: User = Depends(get_admin_user), db: Session = Depends(get_db)
+):
+    """Sync skills directory to database.
+
+    Args:
+        admin: Current admin user
+        db: Database session
+
+    Returns:
+        Sync result
+    """
+    from src.simple_skill_manager import get_simple_skill_manager
+
+    manager = get_simple_skill_manager()
+    synced = manager.sync_to_db(db)
+
+    return {"synced": synced, "message": f"Synced {synced} skills to database"}
+
+
+@router.get("/skills/{skill_id}", response_model=SkillResponse)
+async def get_skill(
+    skill_id: str, admin: User = Depends(get_admin_user), db: Session = Depends(get_db)
+):
+    """Get skill by ID.
+
+    Args:
+        skill_id: Skill ID
+        admin: Current admin user
+        db: Database session
+
     Returns:
         Skill details
     """
     manager = get_skill_manager()
     skill = manager.get(db, skill_id)
-    
+
     if not skill:
         raise HTTPException(status_code=404, detail="Skill not found")
-    
+
     return _extract_skill_response(skill)
 
 
 @router.post("/skills/{skill_id}/validate")
 async def validate_skill(
-    skill_id: str,
-    admin: User = Depends(get_admin_user),
-    db: Session = Depends(get_db)
+    skill_id: str, admin: User = Depends(get_admin_user), db: Session = Depends(get_db)
 ):
     """Start skill validation.
-    
+
     Args:
         skill_id: Skill ID
         admin: Current admin user
         db: Database session
-        
+
     Returns:
         Validation result
     """
-    logger.info(f"[API validate_skill] 收到验证请求 skill_id={skill_id} admin={admin.user_id}")
-    
+    logger.info(
+        f"[API validate_skill] 收到验证请求 skill_id={skill_id} admin={admin.user_id}"
+    )
+
     manager = get_skill_manager()
     skill = manager.get(db, skill_id)
-    
+
     if not skill:
         logger.error(f"[API validate_skill] Skill不存在: {skill_id}")
         raise HTTPException(status_code=404, detail="Skill not found")
-    
+
     if skill.status not in [STATUS_PENDING]:
         logger.warning(f"[API validate_skill] 状态不允许验证: {skill.status}")
-        raise HTTPException(status_code=400, detail=f"Cannot validate skill with status: {skill.status}")
-    
+        raise HTTPException(
+            status_code=400, detail=f"Cannot validate skill with status: {skill.status}"
+        )
+
     orchestrator = get_validation_orchestrator()
-    
+
     try:
         logger.info(f"[API validate_skill] 开始执行验证流程 skill_id={skill_id}")
         result = await orchestrator.validate_skill(skill_id)
-        logger.info(f"[API validate_skill] 验证完成 skill_id={skill_id} passed={result.get('passed')}")
+        logger.info(
+            f"[API validate_skill] 验证完成 skill_id={skill_id} passed={result.get('passed')}"
+        )
         return {"message": "Validation completed", "result": result}
     except Exception as e:
         logger.error(f"[API validate_skill] 验证异常 skill_id={skill_id} error={e}")
@@ -295,49 +497,47 @@ async def validate_skill(
 
 @router.post("/skills/{skill_id}/revalidate")
 async def revalidate_skill(
-    skill_id: str,
-    admin: User = Depends(get_admin_user),
-    db: Session = Depends(get_db)
+    skill_id: str, admin: User = Depends(get_admin_user), db: Session = Depends(get_db)
 ):
     """重新验证 Skill
-    
+
     Args:
         skill_id: Skill ID
         admin: Current admin user
         db: Database session
-        
+
     Returns:
         验证启动确认
     """
     logger.info(f"[API revalidate_skill] 收到重新验证请求 skill_id={skill_id}")
-    
+
     manager = get_skill_manager()
     skill = manager.get(db, skill_id)
-    
+
     if not skill:
         raise HTTPException(status_code=404, detail="Skill not found")
-    
+
     if skill.status not in [STATUS_PENDING, "rejected"]:
         raise HTTPException(
-            status_code=400, 
-            detail=f"Cannot revalidate skill with status: {skill.status}"
+            status_code=400,
+            detail=f"Cannot revalidate skill with status: {skill.status}",
         )
-    
+
     skill.status = STATUS_PENDING
     skill.validation_stage = None
     skill.layer1_passed = None
     skill.layer2_passed = None
     db.commit()
-    
+
     orchestrator = get_validation_orchestrator()
-    
+
     try:
         asyncio.create_task(orchestrator.validate_skill(skill_id))
         return {
             "skill_id": skill_id,
             "status": "validating",
             "validation_stage": "layer1",
-            "message": "Validation started"
+            "message": "Validation started",
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -345,22 +545,20 @@ async def revalidate_skill(
 
 @router.post("/skills/{skill_id}/approve")
 async def approve_skill(
-    skill_id: str,
-    admin: User = Depends(get_admin_user),
-    db: Session = Depends(get_db)
+    skill_id: str, admin: User = Depends(get_admin_user), db: Session = Depends(get_db)
 ):
     """Approve a skill.
-    
+
     Args:
         skill_id: Skill ID
         admin: Current admin user
         db: Database session
-        
+
     Returns:
         Approved skill
     """
     manager = get_skill_manager()
-    
+
     try:
         skill = manager.approve(db, skill_id, admin.user_id)
         return {
@@ -369,7 +567,7 @@ async def approve_skill(
             "status": skill.status,
             "runtime_image_version": skill.runtime_image_version,
             "approved_at": str(skill.approved_at) if skill.approved_at else None,
-            "message": "Skill approved and available to agents"
+            "message": "Skill approved and available to agents",
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -380,28 +578,28 @@ async def reject_skill(
     skill_id: str,
     request: RejectRequest,
     admin: User = Depends(get_admin_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """Reject a skill.
-    
+
     Args:
         skill_id: Skill ID
         request: Reject request with reason
         admin: Current admin user
         db: Database session
-        
+
     Returns:
         Rejected skill
     """
     manager = get_skill_manager()
-    
+
     try:
         skill = manager.reject(db, skill_id, admin.user_id, request.reason)
         return {
             "skill_id": skill.skill_id,
             "status": skill.status,
             "rejected_at": str(skill.rejected_at) if skill.rejected_at else None,
-            "reject_reason": skill.reject_reason
+            "reject_reason": skill.reject_reason,
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -409,52 +607,48 @@ async def reject_skill(
 
 @router.delete("/skills/{skill_id}")
 async def delete_skill(
-    skill_id: str,
-    admin: User = Depends(get_admin_user),
-    db: Session = Depends(get_db)
+    skill_id: str, admin: User = Depends(get_admin_user), db: Session = Depends(get_db)
 ):
     """Delete a skill.
-    
+
     Args:
         skill_id: Skill ID
         admin: Current admin user
         db: Database session
-        
+
     Returns:
         Success message
     """
     manager = get_skill_manager()
-    
+
     if not manager.delete(db, skill_id):
         raise HTTPException(status_code=404, detail="Skill not found")
-    
+
     return {"message": "Skill deleted"}
 
 
 @router.get("/skills/{skill_id}/report")
 async def get_skill_report(
-    skill_id: str,
-    admin: User = Depends(get_admin_user),
-    db: Session = Depends(get_db)
+    skill_id: str, admin: User = Depends(get_admin_user), db: Session = Depends(get_db)
 ):
     """Get skill validation report.
-    
+
     Args:
         skill_id: Skill ID
         admin: Current admin user
         db: Database session
-        
+
     Returns:
         Markdown validation report
     """
     from src.config import flash_llm
-    
+
     manager = get_skill_manager()
     skill = manager.get(db, skill_id)
-    
+
     if not skill:
         raise HTTPException(status_code=404, detail="Skill not found")
-    
+
     if not skill.layer1_report:
         return {
             "content": f"""# Skill 验证报告
@@ -465,15 +659,15 @@ async def get_skill_report(
 |------|-----|
 | **Skill ID** | {skill.skill_id} |
 | **名称** | {skill.name} |
-| **验证阶段** | {skill.validation_stage or 'pending'} |
+| **验证阶段** | {skill.validation_stage or "pending"} |
 
 ## 说明
 
 验证尚未完成，请稍后刷新查看完整报告。
 """,
-            "content_type": "markdown"
+            "content_type": "markdown",
         }
-    
+
     prompt = f"""
 请根据以下验证结果生成 Markdown 格式的验证报告。
 
@@ -502,39 +696,36 @@ async def get_skill_report(
 
 输出纯 Markdown，不要用代码块包裹。
 """
-    
+
     response = await flash_llm.ainvoke(prompt)
-    content = response.content if hasattr(response, 'content') else str(response)
-    
-    return {
-        "content": content,
-        "content_type": "markdown"
-    }
+    content = response.content if hasattr(response, "content") else str(response)
+
+    return {"content": content, "content_type": "markdown"}
 
 
 class RollbackRequest(BaseModel):
     """Rollback request."""
+
     target_version: str
 
 
 @router.get("/images")
 async def list_image_versions(
-    admin: User = Depends(get_admin_user),
-    db: Session = Depends(get_db)
+    admin: User = Depends(get_admin_user), db: Session = Depends(get_db)
 ):
     """获取镜像版本列表
-    
+
     Args:
         admin: Current admin user
         db: Database session
-        
+
     Returns:
         List of image versions
     """
     from src.database import ImageVersion
-    
+
     versions = db.query(ImageVersion).order_by(ImageVersion.created_at.desc()).all()
-    
+
     return {
         "versions": [
             {
@@ -542,12 +733,12 @@ async def list_image_versions(
                 "skill_id": v.skill_id,
                 "skill_name": None,
                 "created_at": str(v.created_at),
-                "is_current": v.is_current
+                "is_current": v.is_current,
             }
             for v in versions
         ],
         "current_version": next((v.version for v in versions if v.is_current), None),
-        "total": len(versions)
+        "total": len(versions),
     }
 
 
@@ -555,52 +746,56 @@ async def list_image_versions(
 async def rollback_image(
     request: RollbackRequest,
     admin: User = Depends(get_admin_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """回滚镜像版本
-    
+
     Args:
         request: Rollback request with target version
         admin: Current admin user
         db: Database session
-        
+
     Returns:
         Rollback result
     """
     from src.database import ImageVersion
     from src.agent_skills.skill_image_manager import get_image_backend
-    
+
     image_backend = get_image_backend()
-    
-    target = db.query(ImageVersion).filter(ImageVersion.version == request.target_version).first()
+
+    target = (
+        db.query(ImageVersion)
+        .filter(ImageVersion.version == request.target_version)
+        .first()
+    )
     if not target:
-        raise HTTPException(status_code=404, detail=f"Version {request.target_version} not found")
-    
+        raise HTTPException(
+            status_code=404, detail=f"Version {request.target_version} not found"
+        )
+
     current = db.query(ImageVersion).filter(ImageVersion.is_current == True).first()
     affected_skills = []
-    
+
     if current:
-        skills = db.query(Skill).filter(
-            Skill.approved_at >= target.created_at
-        ).all()
+        skills = db.query(Skill).filter(Skill.approved_at >= target.created_at).all()
         affected_skills = [s.name for s in skills]
-        
+
         for skill in skills:
             skill.status = "rollback_pending"
         db.commit()
-    
+
     try:
         image_backend.load(request.target_version)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to load image: {e}")
-    
+
     db.query(ImageVersion).update({"is_current": False})
     target.is_current = True
     db.commit()
-    
+
     return {
         "current_version": current.version if current else None,
         "target_version": request.target_version,
         "affected_skills": affected_skills,
-        "message": f"Rollback to {request.target_version} completed"
+        "message": f"Rollback to {request.target_version} completed",
     }

@@ -1,4 +1,5 @@
 """Configuration settings for the backend application."""
+
 from pathlib import Path
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -9,7 +10,10 @@ from src.utils.get_root_path import get_project_root
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
-    model_config = SettingsConfigDict(env_file=get_project_root() / ".env", env_file_encoding="utf-8")
+
+    model_config = SettingsConfigDict(
+        env_file=get_project_root() / ".env", env_file_encoding="utf-8"
+    )
 
     # 智谱AI配置
     ZHIPUAI_API_KEY: str
@@ -62,6 +66,10 @@ class Settings(BaseSettings):
     DOCKER_IDLE_TIMEOUT_SECONDS: int = 600  # 10 分钟无操作自动清理
     REDIS_URL: str = "redis://localhost:6379/0"
 
+    # MCP 配置
+    MCP_CACHE_TTL: int = 300  # MCP 工具缓存时间（秒）
+    MCP_CONNECTION_TIMEOUT: int = 30  # MCP 连接超时（秒）
+
     LLM_MODE: int
 
     @field_validator("IS_LANGFUSE", mode="before")
@@ -84,10 +92,7 @@ llm_glm_4_7 = ChatOpenAI(
     temperature=0,
     openai_api_key=settings.ZHIPUAI_API_KEY,
     openai_api_base=settings.ZHIPUAI_API_BASE,
-    extra_body={
-        "response_format": {"type": "text"},
-        "thinking": {"type": "enabled"}
-    }
+    extra_body={"response_format": {"type": "text"}, "thinking": {"type": "enabled"}},
 )
 
 llm_glm_5 = ChatOpenAI(
@@ -95,16 +100,13 @@ llm_glm_5 = ChatOpenAI(
     temperature=0,
     openai_api_key=settings.ZHIPUAI_API_KEY,
     openai_api_base=settings.ZHIPUAI_API_BASE,
-    extra_body={
-        "response_format": {"type": "text"},
-        "thinking": {"type": "enabled"}
-    }
+    extra_body={"response_format": {"type": "text"}, "thinking": {"type": "enabled"}},
 )
 
 llm_qwen3_vl_30b_a3b_instruct = ChatOpenAI(
     model="Qwen3-VL-30B-A3B-Instruct",
     base_url=settings.OPENAI_API_BASE_8001,
-    api_key="EMPTY",   # vllm不校验
+    api_key="EMPTY",  # vllm不校验
     temperature=0.7,
     max_tokens=1024,
 )
@@ -113,7 +115,7 @@ llm_qwen3_vl_30b_a3b_instruct = ChatOpenAI(
 llm_minimax_m2_1 = ChatOpenAI(
     model="MiniMax-M2.1",
     base_url=settings.OPENAI_API_BASE_8002,
-    api_key="EMPTY",   # vllm不校验
+    api_key="EMPTY",  # vllm不校验
     temperature=0.7,
     max_tokens=1024,
 )
@@ -126,7 +128,7 @@ llm_modelscope_qwen3_vl_30b_a3b_instruct = ChatOpenAI(
     max_tokens=1024,
 )
 
-if settings.LLM_MODE==1:
+if settings.LLM_MODE == 1:
     big_llm = llm_glm_5
     flash_llm = llm_modelscope_qwen3_vl_30b_a3b_instruct
 else:

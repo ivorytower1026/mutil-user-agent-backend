@@ -1,5 +1,18 @@
 """Database connection and models."""
-from sqlalchemy import create_engine, Column, String, DateTime, Boolean, Integer, Float, Text, JSON, ForeignKey, func
+
+from sqlalchemy import (
+    create_engine,
+    Column,
+    String,
+    DateTime,
+    Boolean,
+    Integer,
+    Float,
+    Text,
+    JSON,
+    ForeignKey,
+    func,
+)
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
@@ -12,6 +25,7 @@ Base = declarative_base()
 
 class User(Base):
     """User model for authentication."""
+
     __tablename__ = "users"
 
     user_id = Column(String(50), primary_key=True)
@@ -23,6 +37,7 @@ class User(Base):
 
 class Thread(Base):
     """Thread model for session metadata."""
+
     __tablename__ = "threads"
 
     thread_id = Column(String(100), primary_key=True)
@@ -33,6 +48,7 @@ class Thread(Base):
 
 class Skill(Base):
     """Skill model for skill validation and management."""
+
     __tablename__ = "skills"
 
     skill_id = Column(String(50), primary_key=True)
@@ -97,6 +113,7 @@ class Skill(Base):
 
 class ImageVersion(Base):
     """Image version model for skill runtime images."""
+
     __tablename__ = "image_versions"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -105,6 +122,43 @@ class ImageVersion(Base):
     created_at = Column(DateTime, server_default=func.now())
     is_current = Column(Boolean, default=False)
     dependencies_snapshot = Column(JSON)
+
+
+class McpServer(Base):
+    """MCP server configuration model."""
+
+    __tablename__ = "mcp_servers"
+
+    id = Column(String(50), primary_key=True)
+    name = Column(String(64), unique=True, nullable=False)
+    transport = Column(String(20), nullable=False)
+    command = Column(String(255))
+    args = Column(JSON, default=list)
+    url = Column(String(255))
+    env = Column(JSON, default=dict)
+    headers = Column(JSON, default=dict)
+    enabled = Column(Boolean, default=True)
+    created_by = Column(String(50), ForeignKey("users.user_id"))
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class AgentConfigModel(Base):
+    """Agent configuration model."""
+
+    __tablename__ = "agent_configs"
+
+    id = Column(String(50), primary_key=True)
+    name = Column(String(64), unique=True, nullable=False)
+    is_main = Column(Boolean, default=False)
+    description = Column(String(512))
+    system_prompt = Column(Text)
+    mcp_tools = Column(JSON, default=list)
+    skills = Column(JSON, default=list)
+    subagents = Column(JSON, default=list)
+    model = Column(String(64))
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
 def get_db():
