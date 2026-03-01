@@ -108,31 +108,14 @@ class McpToolAdapter:
             from mcp.client.stdio import stdio_client
 
             if self.config.transport == "stdio":
-                server_params = StdioServerParameters(
-                    command=self.config.command,
-                    args=self.config.args or [],
-                    env=self.config.env or {},
-                )
-
-                async with stdio_client(server_params) as (read, write):
-                    async with ClientSession(read, write) as session:
-                        await session.initialize()
-                        tools_result = await session.list_tools()
-
-                        tools = []
-                        for tool in tools_result.tools:
-                            langchain_tool = self._convert_to_langchain_tool(
-                                tool, session
-                            )
-                            tools.append(langchain_tool)
-
-                        logger.info(
-                            f"[McpToolAdapter] Loaded {len(tools)} tools from {self.config.name}"
-                        )
-                        return tools
+                return await self._fetch_tools_stdio()
+            elif self.config.transport == "sse":
+                return await self._fetch_tools_sse()
+            elif self.config.transport == "http":
+                return await self._fetch_tools_http()
             else:
-                logger.warning(
-                    f"[McpToolAdapter] HTTP transport tool loading not yet implemented"
+                logger.error(
+                    f"[McpToolAdapter] Unknown transport: {self.config.transport}"
                 )
                 return []
 
@@ -144,6 +127,92 @@ class McpToolAdapter:
         except Exception as e:
             logger.exception(f"[McpToolAdapter] Failed to fetch tools: {e}")
             return []
+
+    async def _fetch_tools_stdio(self) -> list[BaseTool]:
+        """Fetch tools via stdio transport."""
+        from mcp import ClientSession, StdioServerParameters
+        from mcp.client.stdio import stdio_client
+
+        server_params = StdioServerParameters(
+            command=self.config.command,
+            args=self.config.args or [],
+            env=self.config.env or {},
+        )
+
+        async with stdio_client(server_params) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                tools_result = await session.list_tools()
+
+                tools = []
+                for tool in tools_result.tools:
+                    langchain_tool = self._convert_to_langchain_tool(tool, session)
+                    tools.append(langchain_tool)
+
+                logger.info(
+                    f"[McpToolAdapter] Loaded {len(tools)} tools from {self.config.name} via stdio"
+                )
+                return tools
+
+    async def _fetch_tools_sse(self) -> list[BaseTool]:
+        """Fetch tools via SSE transport."""
+        from mcp import ClientSession
+        from mcp.client.sse import sse_client
+
+        if not self.config.url:
+            logger.error(
+                f"[McpToolAdapter] No URL for SSE transport: {self.config.name}"
+            )
+            return []
+
+        headers = self.config.headers or {}
+
+        async with sse_client(self.config.url, headers=headers) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                tools_result = await session.list_tools()
+
+                tools = []
+                for tool in tools_result.tools:
+                    langchain_tool = self._convert_to_langchain_tool(tool, session)
+                    tools.append(langchain_tool)
+
+                logger.info(
+                    f"[McpToolAdapter] Loaded {len(tools)} tools from {self.config.name} via sse"
+                )
+                return tools
+
+    async def _fetch_tools_http(self) -> list[BaseTool]:
+        """Fetch tools via HTTP transport."""
+        from mcp import ClientSession
+        from mcp.client.streamable_http import streamablehttp_client
+
+        if not self.config.url:
+            logger.error(
+                f"[McpToolAdapter] No URL for HTTP transport: {self.config.name}"
+            )
+            return []
+
+        headers = self.config.headers or {}
+
+        async with streamablehttp_client(self.config.url, headers=headers) as (
+            read,
+            write,
+            _,
+        ):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                tools_result = await session.list_tools()
+
+                tools = []
+                for tool in tools_result.tools:
+                    langchain_tool = self._convert_to_langchain_tool(tool, session)
+                    tools.append(langchain_tool)
+
+                logger.info(
+                    f"[McpToolAdapter] Loaded {len(tools)} tools from {self.config.name} via http"
+                )
+                return tools
 
     def _convert_to_langchain_tool(self, mcp_tool: Any, session: Any) -> BaseTool:
         """Convert MCP tool to LangChain tool."""
