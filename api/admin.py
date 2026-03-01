@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from src.database import get_db, User, Skill
 from src.auth import get_current_user
+from api.models import LlmConfigResponse
 from src.agent_skills.skill_manager import get_skill_manager, STATUS_PENDING
 from src.agent_skills.skill_validator import get_validation_orchestrator
 from src.utils.get_logger import get_logger
@@ -850,7 +851,7 @@ async def list_llm_configs(
     }
 
 
-@router.post("/llm/configs", response_model=dict)
+@router.post("/llm/configs", response_model=LlmConfigResponse)
 async def create_llm_config(
     request: dict,
     admin: User = Depends(get_admin_user),
@@ -914,7 +915,7 @@ async def create_llm_config(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/llm/configs/{config_id}", response_model=dict)
+@router.get("/llm/configs/{config_id}", response_model=LlmConfigResponse)
 async def get_llm_config(
     config_id: str,
     admin: User = Depends(get_admin_user),
@@ -956,7 +957,7 @@ async def get_llm_config(
     )
 
 
-@router.put("/llm/configs/{config_id}", response_model=dict)
+@router.put("/llm/configs/{config_id}", response_model=LlmConfigResponse)
 async def update_llm_config(
     config_id: str,
     request: dict,
@@ -1039,7 +1040,7 @@ async def delete_llm_config(
     return {"message": "LLM config deleted"}
 
 
-@router.post("/llm/configs/{config_id}/activate", response_model=dict)
+@router.post("/llm/configs/{config_id}/activate", response_model=LlmConfigResponse)
 async def activate_llm_config(
     config_id: str,
     admin: User = Depends(get_admin_user),
@@ -1060,7 +1061,7 @@ async def activate_llm_config(
 
     manager = get_llm_manager()
 
-    config = manager.activate_config(db, config_id)
+    config = manager.activate_config(config_id, db)
 
     if not config:
         raise HTTPException(status_code=404, detail="LLM config not found")
