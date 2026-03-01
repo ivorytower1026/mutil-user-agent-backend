@@ -153,7 +153,7 @@ class AgentConfigModel(Base):
     is_main = Column(Boolean, default=False)
     description = Column(String(512))
     system_prompt = Column(Text)
-    mcp_tools = Column(JSON, default=list)
+    mcp_servers = Column(JSON, default=list)
     skills = Column(JSON, default=list)
     subagents = Column(JSON, default=list)
     model = Column(String(64))

@@ -31,7 +31,7 @@ class MainAgentConfigUpdate(BaseModel):
     """Main agent config update request."""
 
     system_prompt: Optional[str] = None
-    mcp_tools: Optional[list[str]] = None
+    mcp_servers: Optional[list[str]] = None
     skills: Optional[list[str]] = None
     subagents: Optional[list[str]] = None
 
@@ -42,7 +42,7 @@ class SubagentCreate(BaseModel):
     name: str
     description: Optional[str] = None
     system_prompt: Optional[str] = None
-    mcp_tools: Optional[list[str]] = None
+    mcp_servers: Optional[list[str]] = None
     skills: Optional[list[str]] = None
     model: Optional[str] = None
 
@@ -52,7 +52,7 @@ class SubagentUpdate(BaseModel):
 
     description: Optional[str] = None
     system_prompt: Optional[str] = None
-    mcp_tools: Optional[list[str]] = None
+    mcp_servers: Optional[list[str]] = None
     skills: Optional[list[str]] = None
     model: Optional[str] = None
 
@@ -65,7 +65,7 @@ class AgentConfigResponse(BaseModel):
     is_main: bool
     description: Optional[str] = None
     system_prompt: Optional[str] = None
-    mcp_tools: list[str] = []
+    mcp_servers: list[str] = []
     skills: list[str] = []
     subagents: list[str] = []
     model: Optional[str] = None
@@ -86,7 +86,7 @@ def _config_to_response(config) -> AgentConfigResponse:
         is_main=config.is_main,
         description=config.description,
         system_prompt=config.system_prompt,
-        mcp_tools=config.mcp_tools or [],
+        mcp_servers=config.mcp_servers or [],
         skills=config.skills or [],
         subagents=config.subagents or [],
         model=config.model,

@@ -76,7 +76,10 @@ class AgentManager:
             main_config = self.config_manager.get_main_config(db)
             subagent_configs = self.config_manager.get_subagent_configs(db)
 
-        mcp_tools = await self.mcp_manager.get_tools(main_config.mcp_tools or [])
+        mcp_tools = []
+        for server_name in main_config.mcp_servers or []:
+            tools = await self.mcp_manager.get_all_tools(server_name)
+            mcp_tools.extend(tools)
         mcp_tools.append(self._create_ask_user_tool())
 
         skills_paths = self._build_skills_paths(main_config.skills or [])
@@ -132,7 +135,10 @@ class AgentManager:
             if config.name not in enabled_names:
                 continue
 
-            tools = await self.mcp_manager.get_tools(config.mcp_tools or [])
+            tools = []
+            for server_name in config.mcp_servers or []:
+                server_tools = await self.mcp_manager.get_all_tools(server_name)
+                tools.extend(server_tools)
             skills_paths = self._build_skills_paths(config.skills or [])
 
             subagent: SubAgent = {

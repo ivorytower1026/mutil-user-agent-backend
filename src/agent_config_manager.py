@@ -21,7 +21,7 @@ DEFAULT_MAIN_CONFIG = {
 当你不明确用户需求时，可以调用提问工具向用户提问(可以同时提多个问题)，这个提问工具最多调用两次
 优先尝试使用已有的skill完成任务
 """,
-    "mcp_tools": [],
+    "mcp_servers": [],
     "skills": [],
     "subagents": [],
     "model": None,
@@ -40,7 +40,7 @@ class AgentConfig:
             self.is_main = model.is_main
             self.description = model.description
             self.system_prompt = model.system_prompt
-            self.mcp_tools = model.mcp_tools or []
+            self.mcp_servers = model.mcp_servers or []
             self.skills = model.skills or []
             self.subagents = model.subagents or []
             self.model = model.model
@@ -51,7 +51,7 @@ class AgentConfig:
             self.is_main = default.get("is_main", False)
             self.description = default.get("description")
             self.system_prompt = default.get("system_prompt")
-            self.mcp_tools = default.get("mcp_tools", [])
+            self.mcp_servers = default.get("mcp_servers", [])
             self.skills = default.get("skills", [])
             self.subagents = default.get("subagents", [])
             self.model = default.get("model")
@@ -66,7 +66,7 @@ class AgentConfig:
             "is_main": self.is_main,
             "description": self.description,
             "system_prompt": self.system_prompt,
-            "mcp_tools": self.mcp_tools,
+            "mcp_servers": self.mcp_servers,
             "skills": self.skills,
             "subagents": self.subagents,
             "model": self.model,
@@ -150,7 +150,7 @@ class AgentConfigManager:
                 system_prompt=config_data.get(
                     "system_prompt", DEFAULT_MAIN_CONFIG["system_prompt"]
                 ),
-                mcp_tools=config_data.get("mcp_tools", []),
+                mcp_servers=config_data.get("mcp_servers", []),
                 skills=config_data.get("skills", []),
                 subagents=config_data.get("subagents", []),
                 model=config_data.get("model"),
@@ -159,8 +159,8 @@ class AgentConfigManager:
         else:
             if "system_prompt" in config_data:
                 config.system_prompt = config_data["system_prompt"]
-            if "mcp_tools" in config_data:
-                config.mcp_tools = config_data["mcp_tools"]
+            if "mcp_servers" in config_data:
+                config.mcp_servers = config_data["mcp_servers"]
             if "skills" in config_data:
                 config.skills = config_data["skills"]
             if "subagents" in config_data:
@@ -192,7 +192,7 @@ class AgentConfigManager:
             is_main=False,
             description=config_data.get("description"),
             system_prompt=config_data.get("system_prompt"),
-            mcp_tools=config_data.get("mcp_tools", []),
+            mcp_servers=config_data.get("mcp_servers", []),
             skills=config_data.get("skills", []),
             subagents=[],
             model=config_data.get("model"),
@@ -223,8 +223,8 @@ class AgentConfigManager:
             config.description = config_data["description"]
         if "system_prompt" in config_data:
             config.system_prompt = config_data["system_prompt"]
-        if "mcp_tools" in config_data:
-            config.mcp_tools = config_data["mcp_tools"]
+        if "mcp_servers" in config_data:
+            config.mcp_servers = config_data["mcp_servers"]
         if "skills" in config_data:
             config.skills = config_data["skills"]
         if "model" in config_data:
