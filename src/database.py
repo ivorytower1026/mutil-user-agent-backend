@@ -161,6 +161,33 @@ class AgentConfigModel(Base):
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
+class LlmConfig(Base):
+    """LLM configuration model for dynamic LLM provider settings."""
+
+    __tablename__ = "llm_configs"
+
+    id = Column(String(50), primary_key=True)
+    name = Column(String(64), unique=True, nullable=False)
+    display_name = Column(String(100))
+    description = Column(String(512))
+
+    provider = Column(String(20), nullable=False)
+    base_url = Column(String(255), nullable=False)
+    api_key = Column(String(255), nullable=False)
+    model_name = Column(String(100), nullable=False)
+
+    temperature = Column(Float, default=0.7)
+    max_tokens = Column(Integer, default=4096)
+    extra_params = Column(JSON, default=dict)
+
+    role = Column(String(20), nullable=False, index=True)
+    is_active = Column(Boolean, default=True, index=True)
+
+    created_by = Column(String(50), ForeignKey("users.user_id"))
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
 def get_db():
     """Get database session."""
     db = SessionLocal()

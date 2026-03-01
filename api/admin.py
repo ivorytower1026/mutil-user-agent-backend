@@ -641,7 +641,7 @@ async def get_skill_report(
     Returns:
         Markdown validation report
     """
-    from src.config import flash_llm
+    from src.llm_manager import get_llm_manager
 
     manager = get_skill_manager()
     skill = manager.get(db, skill_id)
@@ -697,6 +697,7 @@ async def get_skill_report(
 输出纯 Markdown，不要用代码块包裹。
 """
 
+    flash_llm = get_llm_manager().get_flash_llm(db)
     response = await flash_llm.ainvoke(prompt)
     content = response.content if hasattr(response, "content") else str(response)
 
@@ -799,3 +800,313 @@ async def rollback_image(
         "affected_skills": affected_skills,
         "message": f"Rollback to {request.target_version} completed",
     }
+
+
+@router.get("/llm/configs", response_model=dict)
+async def list_llm_configs(
+    role: Optional[str] = None,
+    provider: Optional[str] = None,
+    admin: User = Depends(get_admin_user),
+    db: Session = Depends(get_db),
+):
+    """List all LLM configurations.
+
+    Args:
+        role: Filter by role (big/flash)
+        provider: Filter by provider (ollama/vllm/openai/zhipuai)
+        admin: Current admin user
+        db: Database session
+
+    Returns:
+        List of LLM configurations
+    """
+    from src.llm_manager import get_llm_manager
+    from api.models import LlmConfigResponse
+
+    manager = get_llm_manager()
+    configs = manager.list_configs(db, role=role, provider=provider)
+
+    return {
+        "configs": [
+            LlmConfigResponse(
+                id=c.id,
+                name=c.name,
+                display_name=c.display_name,
+                description=c.description,
+                provider=c.provider,
+                base_url=c.base_url,
+                model_name=c.model_name,
+                temperature=c.temperature,
+                max_tokens=c.max_tokens,
+                extra_params=c.extra_params or {},
+                role=c.role,
+                is_active=c.is_active,
+                created_at=str(c.created_at) if c.created_at else None,
+                updated_at=str(c.updated_at) if c.updated_at else None,
+            )
+            for c in configs
+        ],
+        "total": len(configs),
+    }
+
+
+@router.post("/llm/configs", response_model=dict)
+async def create_llm_config(
+    request: dict,
+    admin: User = Depends(get_admin_user),
+    db: Session = Depends(get_db),
+):
+    """Create a new LLM configuration.
+
+    Args:
+        request: LLM config creation request
+        admin: Current admin user
+        db: Database session
+
+    Returns:
+        Created LLM configuration
+    """
+    from src.llm_manager import get_llm_manager
+    from api.models import LlmConfigResponse
+
+    manager = get_llm_manager()
+
+    try:
+        config = manager.create_config(
+            db=db,
+            name=request["name"],
+            provider=request["provider"],
+            base_url=request["base_url"],
+            api_key=request["api_key"],
+            model_name=request["model_name"],
+            role=request["role"],
+            display_name=request.get("display_name"),
+            description=request.get("description"),
+            temperature=request.get("temperature", 0.7),
+            max_tokens=request.get("max_tokens", 4096),
+            extra_params=request.get("extra_params"),
+            created_by=admin.user_id,
+            activate=request.get("activate", False),
+        )
+
+        return LlmConfigResponse(
+            id=config.id,
+            name=config.name,
+            display_name=config.display_name,
+            description=config.description,
+            provider=config.provider,
+            base_url=config.base_url,
+            model_name=config.model_name,
+            temperature=config.temperature,
+            max_tokens=config.max_tokens,
+            extra_params=config.extra_params or {},
+            role=config.role,
+            is_active=config.is_active,
+            created_at=str(config.created_at) if config.created_at else None,
+            updated_at=str(config.updated_at) if config.updated_at else None,
+        )
+    except Exception as e:
+        if "unique constraint" in str(e).lower() or "duplicate" in str(e).lower():
+            raise HTTPException(
+                status_code=400,
+                detail=f"Config name '{request['name']}' already exists",
+            )
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/llm/configs/{config_id}", response_model=dict)
+async def get_llm_config(
+    config_id: str,
+    admin: User = Depends(get_admin_user),
+    db: Session = Depends(get_db),
+):
+    """Get LLM configuration by ID.
+
+    Args:
+        config_id: LLM config ID
+        admin: Current admin user
+        db: Database session
+
+    Returns:
+        LLM configuration details
+    """
+    from src.database import LlmConfig
+    from api.models import LlmConfigResponse
+
+    config = db.query(LlmConfig).filter(LlmConfig.id == config_id).first()
+
+    if not config:
+        raise HTTPException(status_code=404, detail="LLM config not found")
+
+    return LlmConfigResponse(
+        id=config.id,
+        name=config.name,
+        display_name=config.display_name,
+        description=config.description,
+        provider=config.provider,
+        base_url=config.base_url,
+        model_name=config.model_name,
+        temperature=config.temperature,
+        max_tokens=config.max_tokens,
+        extra_params=config.extra_params or {},
+        role=config.role,
+        is_active=config.is_active,
+        created_at=str(config.created_at) if config.created_at else None,
+        updated_at=str(config.updated_at) if config.updated_at else None,
+    )
+
+
+@router.put("/llm/configs/{config_id}", response_model=dict)
+async def update_llm_config(
+    config_id: str,
+    request: dict,
+    admin: User = Depends(get_admin_user),
+    db: Session = Depends(get_db),
+):
+    """Update LLM configuration.
+
+    Args:
+        config_id: LLM config ID
+        request: Update request
+        admin: Current admin user
+        db: Database session
+
+    Returns:
+        Updated LLM configuration
+    """
+    from src.llm_manager import get_llm_manager
+    from api.models import LlmConfigResponse
+
+    manager = get_llm_manager()
+
+    config = manager.update_config(
+        db=db,
+        config_id=config_id,
+        display_name=request.get("display_name"),
+        description=request.get("description"),
+        base_url=request.get("base_url"),
+        api_key=request.get("api_key"),
+        model_name=request.get("model_name"),
+        temperature=request.get("temperature"),
+        max_tokens=request.get("max_tokens"),
+        extra_params=request.get("extra_params"),
+    )
+
+    if not config:
+        raise HTTPException(status_code=404, detail="LLM config not found")
+
+    return LlmConfigResponse(
+        id=config.id,
+        name=config.name,
+        display_name=config.display_name,
+        description=config.description,
+        provider=config.provider,
+        base_url=config.base_url,
+        model_name=config.model_name,
+        temperature=config.temperature,
+        max_tokens=config.max_tokens,
+        extra_params=config.extra_params or {},
+        role=config.role,
+        is_active=config.is_active,
+        created_at=str(config.created_at) if config.created_at else None,
+        updated_at=str(config.updated_at) if config.updated_at else None,
+    )
+
+
+@router.delete("/llm/configs/{config_id}")
+async def delete_llm_config(
+    config_id: str,
+    admin: User = Depends(get_admin_user),
+    db: Session = Depends(get_db),
+):
+    """Delete LLM configuration.
+
+    Args:
+        config_id: LLM config ID
+        admin: Current admin user
+        db: Database session
+
+    Returns:
+        Success message
+    """
+    from src.llm_manager import get_llm_manager
+
+    manager = get_llm_manager()
+
+    if not manager.delete_config(db, config_id):
+        raise HTTPException(status_code=404, detail="LLM config not found")
+
+    return {"message": "LLM config deleted"}
+
+
+@router.post("/llm/configs/{config_id}/activate", response_model=dict)
+async def activate_llm_config(
+    config_id: str,
+    admin: User = Depends(get_admin_user),
+    db: Session = Depends(get_db),
+):
+    """Activate LLM configuration.
+
+    Args:
+        config_id: LLM config ID
+        admin: Current admin user
+        db: Database session
+
+    Returns:
+        Activated LLM configuration
+    """
+    from src.llm_manager import get_llm_manager
+    from api.models import LlmConfigResponse
+
+    manager = get_llm_manager()
+
+    config = manager.activate_config(db, config_id)
+
+    if not config:
+        raise HTTPException(status_code=404, detail="LLM config not found")
+
+    return LlmConfigResponse(
+        id=config.id,
+        name=config.name,
+        display_name=config.display_name,
+        description=config.description,
+        provider=config.provider,
+        base_url=config.base_url,
+        model_name=config.model_name,
+        temperature=config.temperature,
+        max_tokens=config.max_tokens,
+        extra_params=config.extra_params or {},
+        role=config.role,
+        is_active=config.is_active,
+        created_at=str(config.created_at) if config.created_at else None,
+        updated_at=str(config.updated_at) if config.updated_at else None,
+    )
+
+
+@router.post("/llm/test", response_model=dict)
+async def test_llm_connection(
+    request: dict,
+    admin: User = Depends(get_admin_user),
+    db: Session = Depends(get_db),
+):
+    """Test LLM connection.
+
+    Args:
+        request: Test request with base_url, api_key, model_name
+        admin: Current admin user
+        db: Database session
+
+    Returns:
+        Test result
+    """
+    from src.llm_manager import get_llm_manager
+
+    manager = get_llm_manager()
+
+    result = await manager.test_connection(
+        base_url=request["base_url"],
+        api_key=request["api_key"],
+        model_name=request["model_name"],
+    )
+
+    return result

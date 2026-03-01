@@ -64,6 +64,7 @@ class ThreadListResponse(BaseModel):
 
 # WebDAV and Chunk Upload Models
 
+
 class UploadInitRequest(BaseModel):
     filename: str
     total_chunks: int
@@ -93,3 +94,67 @@ class FileInfo(BaseModel):
     size: int | None = None
     modified: str | None = None
     etag: str | None = None
+
+
+class LlmConfigCreate(BaseModel):
+    name: str
+    display_name: str | None = None
+    description: str | None = None
+    provider: str
+    base_url: str
+    api_key: str
+    model_name: str
+    temperature: float = 0.7
+    max_tokens: int = 4096
+    extra_params: dict = {}
+    role: str
+    activate: bool = False
+
+
+class LlmConfigUpdate(BaseModel):
+    display_name: str | None = None
+    description: str | None = None
+    base_url: str | None = None
+    api_key: str | None = None
+    model_name: str | None = None
+    temperature: float | None = None
+    max_tokens: int | None = None
+    extra_params: dict | None = None
+
+
+class LlmTestRequest(BaseModel):
+    base_url: str
+    api_key: str
+    model_name: str
+
+
+class LlmTestResponse(BaseModel):
+    success: bool
+    message: str
+    response_time_ms: int | None = None
+    response_preview: str | None = None
+
+
+class LlmConfigResponse(BaseModel):
+    id: str
+    name: str
+    display_name: str | None
+    description: str | None
+    provider: str
+    base_url: str
+    model_name: str
+    temperature: float
+    max_tokens: int
+    extra_params: dict
+    role: str
+    is_active: bool
+    created_at: str | None
+    updated_at: str | None
+
+    class Config:
+        from_attributes = True
+
+
+class LlmConfigListResponse(BaseModel):
+    configs: list[LlmConfigResponse]
+    total: int

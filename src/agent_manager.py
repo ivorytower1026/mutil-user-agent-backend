@@ -9,8 +9,9 @@ from deepagents import create_deep_agent
 from deepagents.middleware.subagents import SubAgent
 from typing import Annotated
 
-from src.config import big_llm, settings, flash_llm
+from src.config import settings
 from src.database import SessionLocal, Thread
+from src.llm_manager import get_llm_manager
 from src.docker_sandbox import get_thread_backend
 from src.utils.get_logger import get_logger
 from src.utils.langfuse_monitor import init_langfuse
@@ -75,6 +76,7 @@ class AgentManager:
         with SessionLocal() as db:
             main_config = self.config_manager.get_main_config(db)
             subagent_configs = self.config_manager.get_subagent_configs(db)
+            big_llm = get_llm_manager().get_big_llm(db)
 
         mcp_tools = []
         for server_name in main_config.mcp_servers or []:
@@ -301,8 +303,10 @@ class AgentManager:
                 pending["count"] -= 1
                 return
             try:
-                prompt = f"用5-10个字概括主题，只返回标题：{message[:100]}"
-                response = await flash_llm.ainvoke(prompt)
+                with SessionLocal() as db:
+                    flash_llm = get_llm_manager().get_flash_llm(db)
+                    prompt = f"用5-10个字概括主题，只返回标题：{message[:100]}"
+                    response = await flash_llm.ainvoke(prompt)
                 title = str(response.content).strip()[:20]
 
                 with SessionLocal() as db:

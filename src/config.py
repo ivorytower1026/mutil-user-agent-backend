@@ -86,7 +86,48 @@ def _resolve_path(path_str: str) -> str:
 # Global settings instance
 settings = Settings()
 
-# Create LLM instance using settings
+
+def get_fallback_big_llm() -> ChatOpenAI:
+    """Get fallback big LLM from environment variables."""
+    if settings.LLM_MODE == 1:
+        return ChatOpenAI(
+            model="glm-5",
+            temperature=0,
+            openai_api_key=settings.ZHIPUAI_API_KEY,
+            openai_api_base=settings.ZHIPUAI_API_BASE,
+            extra_body={
+                "response_format": {"type": "text"},
+                "thinking": {"type": "enabled"},
+            },
+        )
+    return ChatOpenAI(
+        model="MiniMax-M2.1",
+        base_url=settings.OPENAI_API_BASE_8002,
+        api_key="EMPTY",
+        temperature=0.7,
+        max_tokens=1024,
+    )
+
+
+def get_fallback_flash_llm() -> ChatOpenAI:
+    """Get fallback flash LLM from environment variables."""
+    if settings.LLM_MODE == 1:
+        return ChatOpenAI(
+            model="Qwen/Qwen3-VL-30B-A3B-Instruct",
+            base_url=settings.MODELSCOPE_URL,
+            api_key=settings.MODELSCOPE_SDK_TOKEN,
+            temperature=0.7,
+            max_tokens=1024,
+        )
+    return ChatOpenAI(
+        model="Qwen3-VL-30B-A3B-Instruct",
+        base_url=settings.OPENAI_API_BASE_8001,
+        api_key="EMPTY",
+        temperature=0.7,
+        max_tokens=1024,
+    )
+
+
 llm_glm_4_7 = ChatOpenAI(
     model="glm-4.7",
     temperature=0,
@@ -106,16 +147,15 @@ llm_glm_5 = ChatOpenAI(
 llm_qwen3_vl_30b_a3b_instruct = ChatOpenAI(
     model="Qwen3-VL-30B-A3B-Instruct",
     base_url=settings.OPENAI_API_BASE_8001,
-    api_key="EMPTY",  # vllm不校验
+    api_key="EMPTY",
     temperature=0.7,
     max_tokens=1024,
 )
 
-
 llm_minimax_m2_1 = ChatOpenAI(
     model="MiniMax-M2.1",
     base_url=settings.OPENAI_API_BASE_8002,
-    api_key="EMPTY",  # vllm不校验
+    api_key="EMPTY",
     temperature=0.7,
     max_tokens=1024,
 )
