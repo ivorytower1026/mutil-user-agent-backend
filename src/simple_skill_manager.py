@@ -26,6 +26,13 @@ def get_skills_dir() -> Path:
     return Path(settings.SHARED_DIR).expanduser().absolute() / "skills"
 
 
+def get_disabled_skills_dir() -> Path:
+    """Get disabled skills directory."""
+    if settings.SKILL_DISABLE_DIR:
+        return Path(settings.SKILL_DISABLE_DIR).expanduser().absolute()
+    return Path(settings.SHARED_DIR).expanduser().absolute() / "skills_disabled"
+
+
 def validate_skill_format(skill_path: str) -> tuple[bool, list[str], list[str]]:
     """Validate skill format using DeepAgents' parser."""
     try:
@@ -64,6 +71,8 @@ class SimpleSkillManager:
     def __init__(self):
         self.skills_dir = get_skills_dir()
         self.skills_dir.mkdir(parents=True, exist_ok=True)
+        self.disabled_skills_dir = get_disabled_skills_dir()
+        self.disabled_skills_dir.mkdir(parents=True, exist_ok=True)
 
     def upload(
         self, db: Session, file: BinaryIO, filename: str, user_id: str | None = None
@@ -199,10 +208,18 @@ class SimpleSkillManager:
         return self.delete(db, skill.skill_id)
 
     def disable(self, db: Session, skill_id: str) -> Skill | None:
-        """Disable a skill."""
+        """Disable a skill and move it to disabled directory."""
         skill = self.get(db, skill_id)
         if not skill:
             return None
+
+        skill_path = Path(skill.skill_path)
+        if skill_path.exists() and skill_path.parent == self.skills_dir:
+            dest_path = self.disabled_skills_dir / skill_path.name
+            if dest_path.exists():
+                shutil.rmtree(dest_path)
+            shutil.move(str(skill_path), str(dest_path))
+            skill.skill_path = str(dest_path)
 
         skill.status = STATUS_DISABLED
         db.commit()
@@ -212,10 +229,18 @@ class SimpleSkillManager:
         return skill
 
     def enable(self, db: Session, skill_id: str) -> Skill | None:
-        """Enable a skill."""
+        """Enable a skill and move it to skills directory."""
         skill = self.get(db, skill_id)
         if not skill:
             return None
+
+        skill_path = Path(skill.skill_path)
+        if skill_path.exists() and skill_path.parent == self.disabled_skills_dir:
+            dest_path = self.skills_dir / skill_path.name
+            if dest_path.exists():
+                shutil.rmtree(dest_path)
+            shutil.move(str(skill_path), str(dest_path))
+            skill.skill_path = str(dest_path)
 
         skill.status = STATUS_ACTIVE
         db.commit()

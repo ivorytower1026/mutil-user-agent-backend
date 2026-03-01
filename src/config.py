@@ -57,6 +57,7 @@ class Settings(BaseSettings):
     SKILL_APPROVED_DIR: str = ""  # 已入库 skill 目录，默认为 {SHARED_DIR}/skills
 
     SKILL_DIR: str = ""
+    SKILL_DISABLE_DIR: str = ""
 
     # Docker 资源限制
     DOCKER_CPU_LIMIT: float = 1.0  # CPU 核数
