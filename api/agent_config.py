@@ -81,6 +81,18 @@ class AllConfigsResponse(BaseModel):
 
 def _config_to_response(config) -> AgentConfigResponse:
     """Convert config to response."""
+    if isinstance(config, dict):
+        return AgentConfigResponse(
+            id=config["id"],
+            name=config["name"],
+            is_main=config.get("is_main", False),
+            description=config.get("description"),
+            system_prompt=config.get("system_prompt"),
+            mcp_servers=config.get("mcp_servers") or [],
+            skills=config.get("skills") or [],
+            subagents=config.get("subagents") or [],
+            model=config.get("model"),
+        )
     return AgentConfigResponse(
         id=config.id,
         name=config.name,
