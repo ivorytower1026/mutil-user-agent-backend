@@ -78,6 +78,10 @@ class AgentManager:
             subagent_configs = self.config_manager.get_subagent_configs(db)
             big_llm = get_llm_manager().get_big_llm(db)
 
+            subagents = await self._build_subagents(
+                subagent_configs, main_config.subagents or [], db
+            )
+
         mcp_tools = []
         for server_name in main_config.mcp_servers or []:
             tools = await self.mcp_manager.get_all_tools(server_name)
@@ -85,10 +89,6 @@ class AgentManager:
         mcp_tools.append(self._create_ask_user_tool())
 
         skills_paths = self._build_skills_paths(main_config.skills or [])
-
-        subagents = await self._build_subagents(
-            subagent_configs, main_config.subagents or []
-        )
 
         system_prompt = main_config.system_prompt or DEFAULT_SYSTEM_PROMPT
 
@@ -128,10 +128,11 @@ class AgentManager:
         return skills_dir
 
     async def _build_subagents(
-        self, subagent_configs: list, enabled_names: list[str]
+        self, subagent_configs: list, enabled_names: list[str], db
     ) -> list[SubAgent]:
         """Build subagents from configurations."""
         subagents = []
+        llm_manager = get_llm_manager()
 
         for config in subagent_configs:
             if config.name not in enabled_names:
@@ -152,7 +153,12 @@ class AgentManager:
             }
 
             if config.model:
-                subagent["model"] = config.model
+                if config.model == "big":
+                    subagent["model"] = llm_manager.get_big_llm(db)
+                elif config.model == "flash":
+                    subagent["model"] = llm_manager.get_flash_llm(db)
+                else:
+                    subagent["model"] = config.model
 
             subagents.append(subagent)
 
