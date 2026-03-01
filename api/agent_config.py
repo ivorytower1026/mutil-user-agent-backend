@@ -10,6 +10,7 @@ from src.database import get_db, User
 from src.auth import get_current_user
 from src.agent_config_manager import get_agent_config_manager
 from src.utils.get_logger import get_logger
+from api.server import agent_manager
 
 router = APIRouter()
 logger = get_logger("agent-config-api")
@@ -125,6 +126,8 @@ async def update_main_agent_config(
 
     config = manager.update_main_config(db, update_data)
 
+    await agent_manager.reload_configs()
+
     return _config_to_response(config)
 
 
@@ -148,6 +151,7 @@ async def create_subagent(
 
     try:
         config = manager.create_subagent(db, request.model_dump())
+        await agent_manager.reload_configs()
         return _config_to_response(config)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -184,6 +188,7 @@ async def update_subagent_config(
 
     try:
         config = manager.update_subagent(db, name, update_data)
+        await agent_manager.reload_configs()
         return _config_to_response(config)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -199,6 +204,8 @@ async def delete_subagent_config(
     if not manager.delete_subagent(db, name):
         raise HTTPException(status_code=404, detail=f"Subagent '{name}' not found")
 
+    await agent_manager.reload_configs()
+
     return {"message": f"Subagent '{name}' deleted"}
 
 
@@ -210,4 +217,6 @@ async def reload_agent_configs(
     manager = get_agent_config_manager()
     manager.load_configs(db)
 
-    return {"message": "Agent configs reloaded"}
+    success = await agent_manager.reload_configs()
+
+    return {"message": "Agent configs reloaded", "success": success}
