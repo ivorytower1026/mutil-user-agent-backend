@@ -1,6 +1,5 @@
 """MCP server connection and tool management."""
 
-import asyncio
 import subprocess
 import uuid
 from typing import Any
@@ -23,6 +22,7 @@ class McpToolAdapter:
         self._tools: list[BaseTool] = []
         self._process: subprocess.Popen | None = None
         self._connected = False
+        self._connection: dict[str, Any] | None = None
 
     async def connect(self) -> bool:
         """Connect to MCP server and load tools."""
@@ -48,24 +48,15 @@ class McpToolAdapter:
             )
             return False
 
-        env = dict(self.config.env or {})
-        args = self.config.args or []
-
-        try:
-            self._process = subprocess.Popen(
-                [self.config.command, *args],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                env=env,
-                text=True,
-            )
-            self._connected = True
-            logger.info(f"[McpToolAdapter] Connected to {self.config.name} via stdio")
-            return True
-        except Exception as e:
-            logger.error(f"[McpToolAdapter] Failed to start process: {e}")
-            return False
+        self._connection = {
+            "transport": "stdio",
+            "command": self.config.command,
+            "args": self.config.args or [],
+            "env": self.config.env or {},
+        }
+        self._connected = True
+        logger.info(f"[McpToolAdapter] Connected to {self.config.name} via stdio")
+        return True
 
     async def _connect_http(self) -> bool:
         """Connect via HTTP/SSE transport."""
@@ -75,6 +66,12 @@ class McpToolAdapter:
             )
             return False
 
+        transport = "sse" if self.config.transport == "sse" else "streamable_http"
+        self._connection = {
+            "transport": transport,
+            "url": self.config.url,
+            "headers": self.config.headers or {},
+        }
         self._connected = True
         logger.info(
             f"[McpToolAdapter] Connected to {self.config.name} via {self.config.transport}"
@@ -87,6 +84,7 @@ class McpToolAdapter:
             self._process.terminate()
             self._process = None
         self._connected = False
+        self._connection = None
         self._tools = []
         logger.info(f"[McpToolAdapter] Disconnected from {self.config.name}")
 
@@ -95,160 +93,39 @@ class McpToolAdapter:
         if not self._connected:
             await self.connect()
 
-        if not self._connected:
+        if not self._connected or not self._connection:
             return []
 
         self._tools = await self._fetch_tools()
         return self._tools
 
     async def _fetch_tools(self) -> list[BaseTool]:
-        """Fetch tools from MCP server."""
+        """Fetch tools from MCP server using langchain-mcp-adapters."""
         try:
-            from mcp import ClientSession, StdioServerParameters
-            from mcp.client.stdio import stdio_client
+            from langchain_mcp_adapters.tools import load_mcp_tools
 
-            if self.config.transport == "stdio":
-                return await self._fetch_tools_stdio()
-            elif self.config.transport == "sse":
-                return await self._fetch_tools_sse()
-            elif self.config.transport == "http":
-                return await self._fetch_tools_http()
-            else:
-                logger.error(
-                    f"[McpToolAdapter] Unknown transport: {self.config.transport}"
-                )
-                return []
+            tools = await load_mcp_tools(
+                None,
+                connection=self._connection,
+                server_name=self.config.name,
+            )
+
+            renamed_tools = []
+            for tool in tools:
+                tool.name = f"{self.config.name}.{tool.name}"
+                renamed_tools.append(tool)
+
+            logger.info(
+                f"[McpToolAdapter] Loaded {len(renamed_tools)} tools from {self.config.name}"
+            )
+            return renamed_tools
 
         except ImportError:
-            logger.warning(
-                "[McpToolAdapter] mcp package not installed, using mock tools"
-            )
-            return self._create_mock_tools()
+            logger.warning("[McpToolAdapter] langchain-mcp-adapters not installed")
+            return []
         except Exception as e:
             logger.exception(f"[McpToolAdapter] Failed to fetch tools: {e}")
             return []
-
-    async def _fetch_tools_stdio(self) -> list[BaseTool]:
-        """Fetch tools via stdio transport."""
-        from mcp import ClientSession, StdioServerParameters
-        from mcp.client.stdio import stdio_client
-
-        server_params = StdioServerParameters(
-            command=self.config.command,
-            args=self.config.args or [],
-            env=self.config.env or {},
-        )
-
-        async with stdio_client(server_params) as (read, write):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                tools_result = await session.list_tools()
-
-                tools = []
-                for tool in tools_result.tools:
-                    langchain_tool = self._convert_to_langchain_tool(tool, session)
-                    tools.append(langchain_tool)
-
-                logger.info(
-                    f"[McpToolAdapter] Loaded {len(tools)} tools from {self.config.name} via stdio"
-                )
-                return tools
-
-    async def _fetch_tools_sse(self) -> list[BaseTool]:
-        """Fetch tools via SSE transport."""
-        from mcp import ClientSession
-        from mcp.client.sse import sse_client
-
-        if not self.config.url:
-            logger.error(
-                f"[McpToolAdapter] No URL for SSE transport: {self.config.name}"
-            )
-            return []
-
-        headers = self.config.headers or {}
-
-        async with sse_client(self.config.url, headers=headers) as (read, write):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                tools_result = await session.list_tools()
-
-                tools = []
-                for tool in tools_result.tools:
-                    langchain_tool = self._convert_to_langchain_tool(tool, session)
-                    tools.append(langchain_tool)
-
-                logger.info(
-                    f"[McpToolAdapter] Loaded {len(tools)} tools from {self.config.name} via sse"
-                )
-                return tools
-
-    async def _fetch_tools_http(self) -> list[BaseTool]:
-        """Fetch tools via HTTP transport."""
-        from mcp import ClientSession
-        from mcp.client.streamable_http import streamablehttp_client
-
-        if not self.config.url:
-            logger.error(
-                f"[McpToolAdapter] No URL for HTTP transport: {self.config.name}"
-            )
-            return []
-
-        headers = self.config.headers or {}
-
-        async with streamablehttp_client(self.config.url, headers=headers) as (
-            read,
-            write,
-            _,
-        ):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                tools_result = await session.list_tools()
-
-                tools = []
-                for tool in tools_result.tools:
-                    langchain_tool = self._convert_to_langchain_tool(tool, session)
-                    tools.append(langchain_tool)
-
-                logger.info(
-                    f"[McpToolAdapter] Loaded {len(tools)} tools from {self.config.name} via http"
-                )
-                return tools
-
-    def _convert_to_langchain_tool(self, mcp_tool: Any, session: Any) -> BaseTool:
-        """Convert MCP tool to LangChain tool."""
-        from langchain_core.tools import StructuredTool
-        from typing import Annotated
-
-        tool_name = f"{self.config.name}.{mcp_tool.name}"
-
-        async def tool_func(**kwargs: Any) -> str:
-            try:
-                result = await session.call_tool(mcp_tool.name, arguments=kwargs)
-                if result.content:
-                    return "\n".join(
-                        item.text if hasattr(item, "text") else str(item)
-                        for item in result.content
-                    )
-                return "Tool executed successfully"
-            except Exception as e:
-                return f"Error: {e}"
-
-        return StructuredTool.from_function(
-            name=tool_name,
-            description=mcp_tool.description or f"MCP tool: {mcp_tool.name}",
-            coroutine=tool_func,
-        )
-
-    def _create_mock_tools(self) -> list[BaseTool]:
-        """Create mock tools for testing when mcp package is not available."""
-        from langchain_core.tools import StructuredTool
-
-        mock_tool = StructuredTool.from_function(
-            name=f"{self.config.name}.mock_tool",
-            description=f"Mock tool for {self.config.name} (MCP package not installed)",
-            func=lambda: "Mock tool - install mcp package for real functionality",
-        )
-        return [mock_tool]
 
     def get_tools(self) -> list[BaseTool]:
         """Get cached tools."""

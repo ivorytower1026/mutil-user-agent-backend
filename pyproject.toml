@@ -28,4 +28,5 @@ dependencies = [
     "redis>=5.0",
     "mem0ai>=1.0.4",
     "mcp>=1.0.0",
+    "langchain-mcp-adapters>=0.1.0",
 ]
