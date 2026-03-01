@@ -1084,6 +1084,39 @@ async def activate_llm_config(
     )
 
 
+@router.post("/llm/configs/{config_id}/test", response_model=dict)
+async def test_llm_config(
+    config_id: str,
+    admin: User = Depends(get_admin_user),
+    db: Session = Depends(get_db),
+):
+    """Test LLM connection using saved config.
+
+    Args:
+        config_id: LLM config ID
+        admin: Current admin user
+        db: Database session
+
+    Returns:
+        Test result
+    """
+    from src.database import LlmConfig
+    from src.llm_manager import get_llm_manager
+
+    config = db.query(LlmConfig).filter(LlmConfig.id == config_id).first()
+    if not config:
+        raise HTTPException(status_code=404, detail="LLM config not found")
+
+    manager = get_llm_manager()
+    result = await manager.test_connection(
+        base_url=config.base_url,
+        api_key=config.api_key,
+        model_name=config.model_name,
+    )
+
+    return result
+
+
 @router.post("/llm/test", response_model=dict)
 async def test_llm_connection(
     request: dict,
