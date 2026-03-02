@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import time
 from typing import Any, AsyncIterator
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -28,17 +29,20 @@ from src.agent_utils.formatter import SSEFormatter, StreamDataFormatter
 from src.agent_utils.interrupt import InterruptHandler
 from src.agent_utils.session import SessionManager
 from src.agent_utils.types import InterruptAction
-
+from datetime import datetime;
 logger = get_logger("main-agent")
 
 AUTO_APPROVE_TOOLS = {"execute", "write_file", "edit_file"}
 
-DEFAULT_SYSTEM_PROMPT = """
+DEFAULT_SYSTEM_PROMPT = f"""
 用户的工作目录在/workspace中，若无明确要求，请在/workspace目录【及子目录】下执行操作,
 当你不明确用户需求时，可以调用提问工具向用户提问(可以同时提多个问题)，这个提问工具最多调用两次
-优先尝试使用已有的skill完成任务
+优先尝试使用已有的skill完成任务。
+你有子agent时，优先尝试使用子agent处理专门的任务。
+现在的时间是{datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 """
 
+FIX_PROMPT = f"""现在的时间是{datetime.now().strftime("%Y-%m-%d %H:%M:%S")}"""
 
 class AgentManager:
     def __init__(self):
@@ -90,7 +94,7 @@ class AgentManager:
 
         skills_paths = self._build_skills_paths(main_config.skills or [])
 
-        system_prompt = main_config.system_prompt or DEFAULT_SYSTEM_PROMPT
+        system_prompt = DEFAULT_SYSTEM_PROMPT + main_config.system_prompt
 
         self.compiled_agent = create_deep_agent(
             model=big_llm,
@@ -147,7 +151,7 @@ class AgentManager:
             subagent: SubAgent = {
                 "name": config.name,
                 "description": config.description or f"Subagent: {config.name}",
-                "system_prompt": config.system_prompt or DEFAULT_SYSTEM_PROMPT,
+                "system_prompt": config.system_prompt + FIX_PROMPT,
                 "tools": tools,
                 "skills": skills_paths if skills_paths else None,
             }
