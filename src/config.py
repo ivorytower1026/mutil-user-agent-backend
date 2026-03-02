@@ -67,10 +67,6 @@ class Settings(BaseSettings):
     DOCKER_IDLE_TIMEOUT_SECONDS: int = 600  # 10 分钟无操作自动清理
     REDIS_URL: str = "redis://localhost:6379/0"
 
-    # MCP 配置
-    MCP_CACHE_TTL: int = 300  # MCP 工具缓存时间（秒）
-    MCP_CONNECTION_TIMEOUT: int = 30  # MCP 连接超时（秒）
-
     LLM_MODE: int
 
     @field_validator("IS_LANGFUSE", mode="before")
