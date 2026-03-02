@@ -14,8 +14,9 @@ from langchain_core.messages import HumanMessage
 from langchain_core.tools import tool
 from langgraph.checkpoint.memory import MemorySaver
 
-from src.config import big_llm
+from src.config import flash_llm
 
+llm = flash_llm
 
 def print_separator(title: str):
     print(f"\n{'=' * 60}")
@@ -75,7 +76,7 @@ async def test_stream_modes():
     checkpointer = MemorySaver()
 
     agent = create_agent(
-        model=big_llm,
+        model=llm,
         tools=tools,
         checkpointer=checkpointer,
     )
@@ -136,7 +137,7 @@ async def test_tuple_vs_single():
     tools = [get_weather]
     checkpointer = MemorySaver()
 
-    agent = create_agent(model=big_llm, tools=tools, checkpointer=checkpointer)
+    agent = create_agent(model=llm, tools=tools, checkpointer=checkpointer)
 
     results = {}
 
@@ -200,7 +201,7 @@ async def test_interrupt_format():
     checkpointer = MemorySaver()
 
     agent = create_agent(
-        model=big_llm,
+        model=llm,
         tools=tools,
         checkpointer=checkpointer,
     )
@@ -243,7 +244,7 @@ async def test_tools_stream():
     tools = [get_weather]
     checkpointer = MemorySaver()
 
-    agent = create_agent(model=big_llm, tools=tools, checkpointer=checkpointer)
+    agent = create_agent(model=llm, tools=tools, checkpointer=checkpointer)
 
     config = {"configurable": {"thread_id": "test-tools"}}
 
@@ -291,7 +292,7 @@ async def test_subgraphs_format():
     tools = [get_weather]
     checkpointer = MemorySaver()
 
-    agent = create_agent(model=big_llm, tools=tools, checkpointer=checkpointer)
+    agent = create_agent(model=llm, tools=tools, checkpointer=checkpointer)
 
     config = {"configurable": {"thread_id": "test-subgraphs"}}
 
@@ -322,7 +323,7 @@ async def test_messages_detailed():
     tools = [get_weather]
     checkpointer = MemorySaver()
 
-    agent = create_agent(model=big_llm, tools=tools, checkpointer=checkpointer)
+    agent = create_agent(model=llm, tools=tools, checkpointer=checkpointer)
 
     config = {"configurable": {"thread_id": "test-token"}}
 
@@ -350,6 +351,136 @@ async def test_messages_detailed():
     return chunks_info
 
 
+async def test_tool_calls_format():
+    """测试工具调用的完整流程格式"""
+    print_separator("工具调用完整流程")
+
+    tools = [get_weather]
+    checkpointer = MemorySaver()
+
+    agent = create_agent(model=llm, tools=tools, checkpointer=checkpointer)
+
+    config = {"configurable": {"thread_id": "test-tool-calls"}}
+
+    print("\n>>> messages 模式 - 查找 tool_calls")
+    print("-" * 40)
+
+    tool_call_chunks = []
+    async for stream_mode, data in agent.astream(
+            {"messages": [HumanMessage(content="北京天气")]},
+            config=config,
+            stream_mode=["messages"],
+    ):
+        if isinstance(data, tuple) and len(data) == 2:
+            msg, metadata = data
+            if hasattr(msg, 'tool_calls') and msg.tool_calls:
+                tool_call_chunks.append({
+                    "msg_type": type(msg).__name__,
+                    "tool_calls": [
+                        {
+                            "name": tc.get('name') if isinstance(tc, dict) else getattr(tc, 'name', None),
+                            "args": str(tc.get('args', {}))[:100] if isinstance(tc, dict) else str(
+                                getattr(tc, 'args', {}))[:100],
+                        }
+                        for tc in msg.tool_calls
+                    ],
+                    "content_preview": str(msg.content)[:50] if msg.content else None,
+                })
+
+    print(f"    Found {len(tool_call_chunks)} chunks with tool_calls")
+    for i, chunk in enumerate(tool_call_chunks):
+        print(f"\n    [Tool Call #{i + 1}]")
+        print(f"      msg_type: {chunk['msg_type']}")
+        print(f"      tool_calls: {json.dumps(chunk['tool_calls'], ensure_ascii=False, indent=6)}")
+        print(f"      content: {chunk['content_preview']}")
+
+    return tool_call_chunks
+
+
+async def test_write_todos_format():
+    """测试 write_todos 工具的特殊格式"""
+    print_separator("write_todos 工具格式")
+
+    # 模拟 write_todos 工具
+    @tool
+    def write_todos(todos: list[dict]) -> str:
+        """写入待办事项"""
+        return f"已写入 {len(todos)} 个待办事项"
+
+    tools = [write_todos]
+    checkpointer = MemorySaver()
+
+    agent = create_agent(model=llm, tools=tools, checkpointer=checkpointer)
+
+    config = {"configurable": {"thread_id": "test-write-todos"}}
+
+    print("\n>>> messages 模式 - 检测 tool_calls 中的 todos")
+    print("-" * 40)
+
+    messages_results = []
+    async for stream_mode, data in agent.astream(
+            {"messages": [HumanMessage(content="制定个todolist，写个冒泡排序的python脚本")]},
+            config=config,
+            stream_mode=["messages"],
+    ):
+        if isinstance(data, tuple) and len(data) == 2:
+            msg, metadata = data
+            if hasattr(msg, 'tool_calls') and msg.tool_calls:
+                for tc in msg.tool_calls:
+                    if isinstance(tc, dict) and tc.get('name') == 'write_todos':
+                        messages_results.append({
+                            "name": tc.get('name'),
+                            "todos": tc.get('args', {}).get('todos', [])[:2],  # 只显示前2个
+                            "todos_count": len(tc.get('args', {}).get('todos', [])),
+                        })
+
+    print(f"    Found {len(messages_results)} write_todos in messages")
+    for r in messages_results:
+        print(f"      todos count: {r['todos_count']}")
+        print(f"      sample: {json.dumps(r['todos'], ensure_ascii=False)}")
+
+    print("\n>>> updates 模式 - 检测 write_todos 的完整结构")
+    print("-" * 40)
+
+    config2 = {"configurable": {"thread_id": "test-write-todos-2"}}
+    updates_results = []
+
+    async for stream_mode, data in agent.astream(
+            {"messages": [HumanMessage(content="制定个todolist，写个冒泡排序的python脚本")]},
+            config=config2,
+            stream_mode=["updates"],
+    ):
+        if isinstance(data, dict):
+            # 检查是否有 write_todos 键
+            if "write_todos" in data:
+                wd = data["write_todos"]
+                updates_results.append({
+                    "key": "write_todos",
+                    "type": type(wd).__name__,
+                    "has_input": "input" in wd if isinstance(wd, dict) else False,
+                    "has_output": "output" in wd if isinstance(wd, dict) else False,
+                    "keys": list(wd.keys()) if isinstance(wd, dict) else None,
+                })
+            # 检查 tools 键
+            if "tools" in data:
+                tools_data = data["tools"]
+                updates_results.append({
+                    "key": "tools",
+                    "type": type(tools_data).__name__,
+                    "has_name": hasattr(tools_data, 'name'),
+                    "name": getattr(tools_data, 'name', None),
+                })
+
+    print(f"    Found {len(updates_results)} relevant updates")
+    for r in updates_results:
+        print(f"      {json.dumps(r, ensure_ascii=False, indent=6)}")
+
+    return {
+        "messages": messages_results,
+        "updates": updates_results,
+    }
+
+
 async def main():
     print("\n" + "=" * 60)
     print(" LangGraph 流格式测试 (精简版)")
@@ -358,12 +489,14 @@ async def main():
 
     all_results = {}
 
-    all_results["tuple_vs_single"] = await test_tuple_vs_single()
-    all_results["stream_modes"] = await test_stream_modes()
-    all_results["tools_stream"] = await test_tools_stream()
-    all_results["subgraphs"] = await test_subgraphs_format()
-    all_results["interrupt"] = await test_interrupt_format()
-    all_results["messages_detailed"] = await test_messages_detailed()
+    # all_results["tuple_vs_single"] = await test_tuple_vs_single()
+    # all_results["stream_modes"] = await test_stream_modes()
+    # all_results["tools_stream"] = await test_tools_stream()
+    # all_results["subgraphs"] = await test_subgraphs_format()
+    # all_results["interrupt"] = await test_interrupt_format()
+    # all_results["messages_detailed"] = await test_messages_detailed()
+    # all_results["tool_calls"] = await test_tool_calls_format()
+    all_results["write_todos"] = await test_write_todos_format()
 
     print("\n" + "=" * 60)
     print(" 测试完成!")
@@ -371,6 +504,7 @@ async def main():
 
     print("\n\n>>> 完整结果摘要:")
     print(json.dumps(all_results, ensure_ascii=False, indent=2, default=str))
+
 
 
 if __name__ == "__main__":

@@ -6,18 +6,23 @@
 
 ## 设计目标
 
-1. **使用 LangGraph 原生能力** - 利用 `tools` 流模式自动获取工具事件
+1. **使用 LangGraph 原生能力** - 使用 `messages` + `updates` 组合
 2. **最小化自定义代码** - 只封装必要的业务逻辑
 3. **统一数据格式** - 全部使用 `subgraphs=True`
 4. **清晰的责任分离** - 流处理 vs 业务逻辑
 
 ## LangGraph 原生流模式
 
-| 模式 | 说明 | 用途 |
-|------|------|------|
-| `messages` | LLM token 流 | 实时输出内容 |
-| `updates` | 状态更新 + `__interrupt__` | 中断检测 |
-| `tools` | 工具生命周期事件 | 自动获取 tool_start/tool_end |
+> ⚠️ **重要**: 基于 `tests/test_langgraph_stream_format.py` 实测结果，详见 [00_actual_test_results.md](./00_actual_test_results.md)
+
+| 模式 | 可用性 | 说明 | 用途 |
+|------|--------|------|------|
+| `messages` | ✅ | LLM token 流 | 实时输出内容 |
+| `updates` | ✅ | 状态更新 + 工具 + `__interrupt__` | 工具事件、中断检测 |
+| `values` | ✅ | 完整 state | 调试 |
+| `tools` | ❌ | 不可用（返回 0 chunks）| - |
+
+**推荐配置**: `stream_mode=["messages", "updates"]`
 
 ## 架构设计
 
@@ -36,9 +41,9 @@
 │           │  agent.astream(             │                       │
 │           │    stream_mode=[            │                       │
 │           │      "messages",            │ ← LangGraph 原生      │
-│           │      "updates",             │                       │
-│           │      "tools"                │                       │
-│           │    ]                        │                       │
+│           │      "updates"              │   (tools 模式不可用)  │
+│           │    ],                       │                       │
+│           │    subgraphs=True           │                       │
 │           │  )                          │                       │
 │           └─────────────┬───────────────┘                      │
 │                         ▼                                       │
@@ -102,24 +107,34 @@
 
 ## 关键简化
 
-### 使用 `tools` 流模式
+### 使用 `messages` + `updates` 组合
 
 ```python
-# 旧代码：手动解析工具事件
-if "tools" in data:
-    tools_data = data["tools"]
-    if isinstance(tools_data, dict) and "messages" in tools_data:
-        for msg in tools_data["messages"]:
-            if hasattr(msg, 'name'):
-                return self.formatter.tool_end(msg.name)
+# 所有模式都返回 tuple: (stream_mode: str, data: Any)
+# subgraphs=True 时: (subgraph_path: tuple, stream_mode: str, data: Any)
 
-# 新代码：直接使用 tools 流
-elif stream_mode == "tools":
-    # data 是标准化的工具事件
-    if data["event"] == "on_tool_start":
-        yield formatter.tool_start(data["name"], data.get("args"))
-    elif data["event"] == "on_tool_end":
-        yield formatter.tool_end(data["name"])
+async for subgraph_path, stream_mode, data in agent.astream(
+    input,
+    config=config,
+    stream_mode=["messages", "updates"],
+    subgraphs=True,
+):
+    if stream_mode == "messages":
+        # data 是 tuple: (AIMessageChunk, metadata)
+        if isinstance(data, tuple) and len(data) == 2:
+            msg, metadata = data
+            if hasattr(msg, 'content') and msg.content:
+                yield formatter.content(str(msg.content))
+    
+    elif stream_mode == "updates":
+        # data 是 dict: {"model": ..., "tools": ...}
+        if "tools" in data:
+            tool_msg = data["tools"]
+            if hasattr(tool_msg, 'name'):
+                yield formatter.tool_end(tool_msg.name)
+        
+        if "__interrupt__" in data:
+            yield formatter.interrupt(data["__interrupt__"])
 ```
 
 ### 统一的 auto_resume 处理

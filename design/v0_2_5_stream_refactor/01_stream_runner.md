@@ -6,9 +6,54 @@
 
 ## 设计原则
 
-1. **使用 LangGraph 原生流模式** - `["messages", "updates", "tools"]`
+1. **使用 LangGraph 原生流模式** - `["messages", "updates"]`（tools 模式不可用）
 2. **最小化自定义逻辑** - 只处理业务特有的 auto_resume
 3. **委托格式化** - SSE 格式化交给 SSEFormatter
+
+## 实测数据格式
+
+> 基于 `tests/test_langgraph_stream_format.py` 实测
+
+### 返回格式
+
+```python
+# subgraphs=True 时返回 3-tuple
+(subgraph_path: tuple, stream_mode: str, data: Any)
+
+# 示例
+((), "messages", (AIMessageChunk(...), {"langgraph_node": "agent"}))
+((), "updates", {"model": AIMessageChunk(...)})
+((), "updates", {"tools": ToolMessage(...)})
+```
+
+### messages 模式
+
+```python
+# data 是 2-tuple
+(AIMessageChunk | ToolMessage | ..., metadata: dict)
+
+# 处理
+msg, metadata = data
+if hasattr(msg, 'content') and msg.content:
+    yield formatter.content(str(msg.content))
+```
+
+### updates 模式
+
+```python
+# data 是 dict
+{"model": AIMessageChunk(...)}  # LLM 响应
+{"tools": ToolMessage(...)}     # 工具调用结果
+{"__interrupt__": [...]}        # 中断
+
+# 处理
+if "tools" in data:
+    tool_msg = data["tools"]
+    yield formatter.tool_end(tool_msg.name)
+
+if "__interrupt__" in data:
+    yield handle_interrupt(data["__interrupt__"])
+```
 
 ## 类设计
 
@@ -34,8 +79,9 @@ class AgentStreamRunner:
     
     使用 LangGraph 原生流模式：
     - messages: LLM token 流
-    - updates: 状态更新 + 中断
-    - tools: 工具生命周期事件
+    - updates: 状态更新 + 工具事件 + 中断
+    
+    注意: tools 流模式不可用（返回 0 chunks）
     """
     
     def __init__(self, agent: Any, formatter: "SSEFormatter"):
@@ -93,10 +139,11 @@ class AgentStreamRunner:
     ) -> AsyncIterator[StreamChunk]:
         """处理单次流循环"""
         
-        async for stream_mode, data in self.agent.astream(
+        # 返回格式: (subgraph_path, stream_mode, data)
+        async for subgraph_path, stream_mode, data in self.agent.astream(
             current_input,
             config=config,
-            stream_mode=["messages", "updates", "tools"],
+            stream_mode=["messages", "updates"],  # tools 模式不可用
             subgraphs=True,
         ):
             if stream_mode == "messages":
@@ -106,29 +153,39 @@ class AgentStreamRunner:
                 chunk = self._handle_updates(data, mode)
                 if chunk:
                     yield chunk
-            
-            elif stream_mode == "tools":
-                event = self._handle_tools(data)
-                if event:
-                    yield StreamChunk(event=event)
     
     def _handle_messages(self, data: Any) -> AsyncIterator[StreamChunk]:
-        """处理 messages 流 - LLM token"""
+        """
+        处理 messages 流 - LLM token
+        
+        data 格式: (AIMessageChunk, metadata: dict)
+        """
         if isinstance(data, tuple) and len(data) == 2:
-            token, _ = data
-            if hasattr(token, 'content') and token.content:
-                content = str(token.content)
+            msg, metadata = data
+            if hasattr(msg, 'content') and msg.content:
+                content = str(msg.content)
                 if content:
                     yield StreamChunk(event=self.formatter.content(content))
-        elif isinstance(data, str) and data:
-            yield StreamChunk(event=self.formatter.content(data))
     
     def _handle_updates(self, data: dict, mode: str) -> StreamChunk | None:
-        """处理 updates 流 - 状态更新和中断"""
+        """
+        处理 updates 流 - 工具事件和中断
+        
+        data 格式: {"model": ..., "tools": ..., "__interrupt__": ...}
+        """
         if not isinstance(data, dict):
             return None
         
-        # 检查中断
+        # 工具调用结束
+        if "tools" in data:
+            tool_msg = data["tools"]
+            if hasattr(tool_msg, 'name'):
+                tool_name = tool_msg.name
+                # 记录工具调用，用于后续中断检测
+                self._last_tool_name = tool_name
+                return StreamChunk(event=self.formatter.tool_end(tool_name))
+        
+        # 中断
         if "__interrupt__" in data:
             return self._handle_interrupt(data, mode)
         
@@ -166,21 +223,6 @@ class AgentStreamRunner:
                 questions=request.get("args", {}).get("questions"),
             )
         )
-    
-    def _handle_tools(self, data: dict) -> str | None:
-        """处理 tools 流 - 工具生命周期事件"""
-        event_type = data.get("event")
-        tool_name = data.get("name", "")
-        
-        if event_type == "on_tool_start":
-            args = data.get("args", {})
-            todos = args.get("todos") if tool_name == "write_todos" else None
-            return self.formatter.tool_start(tool_name, todos)
-        
-        elif event_type == "on_tool_end":
-            return self.formatter.tool_end(tool_name)
-        
-        return None
     
     def _format_interrupt_info(self, request: dict) -> str:
         """格式化中断信息"""
@@ -223,37 +265,47 @@ class AgentStreamRunner:
 
 ## 关键设计决策
 
-### 1. 使用 `tools` 流模式
+### 1. 不使用 `tools` 流模式
 
-LangGraph 自动提供标准化的工具事件：
+实测发现 `tools` 流模式返回 0 个 chunks，不可用。
+
+工具事件必须从 `updates` 模式提取：
 
 ```python
-# on_tool_start
-{
-    "event": "on_tool_start",
-    "name": "execute",
-    "args": {"command": "ls -la"}
-}
+# updates 模式的 data 格式
+{"tools": ToolMessage(name="execute", content="...")}
+{"model": AIMessageChunk(content="...")}
+{"__interrupt__": [...]}
 
-# on_tool_end
-{
-    "event": "on_tool_end", 
-    "name": "execute",
-    "output": "..."
-}
+# 处理方式
+if "tools" in data:
+    tool_msg = data["tools"]
+    if hasattr(tool_msg, 'name'):
+        yield formatter.tool_end(tool_msg.name)
 ```
 
-无需手动解析 `updates` 中的工具状态。
+### 2. subgraphs=True 返回 3-tuple
 
-### 2. StreamChunk 统一返回类型
+```python
+# 无 subgraphs
+async for stream_mode, data in agent.astream(...):
+    ...
+
+# 有 subgraphs（推荐）
+async for subgraph_path, stream_mode, data in agent.astream(..., subgraphs=True):
+    # subgraph_path 是 tuple，如 ()
+    # stream_mode 是 str，如 "messages"
+    # data 是实际数据
+```
+
+### 3. StreamChunk 统一返回类型
 
 所有处理方法返回 `StreamChunk`，包含：
 - `event`: SSE 事件字符串
 - `auto_resume`: 是否需要自动恢复
 - `error`: 错误事件
 
-### 3. 职责单一
+### 4. 职责单一
 
-- `_handle_messages`: 只处理 LLM token
-- `_handle_updates`: 只处理中断（状态更新已不需要）
-- `_handle_tools`: 只处理工具事件
+- `_handle_messages`: 只处理 LLM token（data 是 tuple）
+- `_handle_updates`: 处理工具事件和中断（data 是 dict）
