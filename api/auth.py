@@ -63,10 +63,13 @@ async def register(user: UserRegister, db: Session = Depends(get_db)):
     )
     os.makedirs(workspace_dir, exist_ok=True)
     
+    is_first_user = db.query(User).count() == 0
+    
     db_user = User(
         user_id=user_id,
         username=user.username,
-        password_hash=get_password_hash(user.password)
+        password_hash=get_password_hash(user.password),
+        is_admin=is_first_user
     )
     db.add(db_user)
     db.commit()

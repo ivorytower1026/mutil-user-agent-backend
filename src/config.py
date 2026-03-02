@@ -64,7 +64,7 @@ class Settings(BaseSettings):
     DOCKER_MEMORY_LIMIT: str = "2g"  # 内存限制
 
     # 沙箱超时配置
-    DOCKER_IDLE_TIMEOUT_SECONDS: int = 600  # 10 分钟无操作自动清理
+    DOCKER_IDLE_TIMEOUT_SECONDS: int = 60  # 1 分钟无操作自动清理
     REDIS_URL: str = "redis://localhost:6379/0"
 
     LLM_MODE: int
