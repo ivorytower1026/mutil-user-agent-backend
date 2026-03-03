@@ -167,12 +167,26 @@ class DockerSandboxBackend(BaseSandbox):
         return results
 
     def download_files(self, paths: list[str]) -> list[FileDownloadResponse]:
-        """Download files - files are read directly from workspace directory."""
+        """Download files - reads from mounted directories based on path prefix."""
         self._update_activity()
         results = []
+        
         for file_path in paths:
             try:
-                full_path = os.path.join(self.workspace_dir, file_path.lstrip("/"))
+                if file_path.startswith(settings.CONTAINER_SKILLS_DIR + "/"):
+                    base_dir = str(Path(settings.SKILL_DIR).expanduser().absolute())
+                    relative_path = file_path[len(settings.CONTAINER_SKILLS_DIR) + 1:]
+                elif file_path.startswith(settings.CONTAINER_SHARED_DIR + "/"):
+                    base_dir = str(Path(settings.SHARED_DIR).expanduser().absolute())
+                    relative_path = file_path[len(settings.CONTAINER_SHARED_DIR) + 1:]
+                elif file_path.startswith(settings.CONTAINER_WORKSPACE_DIR + "/"):
+                    base_dir = self.workspace_dir
+                    relative_path = file_path[len(settings.CONTAINER_WORKSPACE_DIR) + 1:]
+                else:
+                    base_dir = self.workspace_dir
+                    relative_path = file_path.lstrip("/")
+                
+                full_path = os.path.join(base_dir, relative_path)
                 with open(full_path, "rb") as f:
                     content = f.read()
                 results.append(

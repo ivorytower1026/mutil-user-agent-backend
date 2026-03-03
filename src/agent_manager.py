@@ -112,7 +112,7 @@ class AgentManager:
                     "description": "Agent 请求用户回答问题",
                 },
             },
-            skills=skills_paths if skills_paths else [settings.CONTAINER_SKILLS_DIR],
+            skills=[settings.CONTAINER_SKILLS_DIR],
             system_prompt=system_prompt,
             subagents=subagents,
         )
@@ -153,7 +153,7 @@ class AgentManager:
                 "description": config.description or f"Subagent: {config.name}",
                 "system_prompt": config.system_prompt + FIX_PROMPT,
                 "tools": tools,
-                "skills": skills_paths if skills_paths else None,
+                "skills": [settings.CONTAINER_SKILLS_DIR],
             }
 
             if config.model:
