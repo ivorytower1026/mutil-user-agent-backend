@@ -1,3 +1,4 @@
+import json
 import logging
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Iterator
@@ -254,9 +255,25 @@ class AgentStreamRunner:
                 "info": self._format_interrupt_info(request),
                 "taskName": TASK_DISPLAY_NAMES.get(tool_name, tool_name) or tool_name,
                 "data": sanitize_for_json(interrupt.value),
-                "questions": request.get("args", {}).get("questions") or [],
+                 "questions": self._parse_questions(request.get("args", {}).get("questions")),
             })
         )
+
+    def _parse_questions(self, questions: Any) -> list[dict]:
+        """Parse questions from args, handling string or list format"""
+        if questions is None:
+            return []
+        if isinstance(questions, list):
+            return questions
+        if isinstance(questions, str):
+            # 清理可能存在的错误格式
+            clean_str = questions.split('", "answers"')[0]
+            try:
+                import json
+                return json.loads(clean_str)
+            except (json.JSONDecodeError, ValueError):
+                return []
+        return []
     
     def _format_interrupt_info(self, request: dict[str, Any]) -> str:
         """Format interrupt info"""
@@ -278,7 +295,7 @@ class AgentStreamRunner:
             name = os.path.basename(file_path) if file_path else "文件"
             return f"正在编辑文件: {name}"
         elif tool_name == "ask_user":
-            questions = args.get("questions", []) or []
+            questions = self._parse_questions(args.get("questions"))
             return f"Agent 提出了 {len(questions)} 个问题"
         else:
             return "正在执行操作"
