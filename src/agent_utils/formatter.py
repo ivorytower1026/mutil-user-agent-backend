@@ -36,28 +36,80 @@ def _convert_for_json(data: Any) -> Any:
 class SSEFormatter:
     def format(self, event_type: str, data: dict) -> str:
         event_name = INTERNAL_TO_SSE_EVENT.get(event_type, event_type)
-        
+
         if event_type == InternalEventType.CONTENT:
             sanitized = _convert_for_json(data)
         else:
             sanitized = sanitize_for_json(data)
-        
+
         return f"event: {event_name}\ndata: {json.dumps(sanitized, ensure_ascii=False)}\n\n"
 
-    def make_content_event(self, content: str) -> str:
-        return self.format(InternalEventType.CONTENT, {"content": content})
+    def make_content_event(
+        self,
+        content: str,
+        namespace: list[str] | None = None,
+        subagent_id: str | None = None,
+        subagent_name: str | None = None,
+    ) -> str:
+        data = {"content": content}
+        if namespace:
+            data["namespace"] = namespace
+        if subagent_id:
+            data["subagent_id"] = subagent_id
+        if subagent_name:
+            data["subagent_name"] = subagent_name
+        return self.format(InternalEventType.CONTENT, data)
 
-    def make_tool_start_event(self, tool: str, todos: list[dict] | None = None) -> str:
+    def make_tool_start_event(
+        self,
+        tool: str,
+        todos: list[dict] | None = None,
+        namespace: list[str] | None = None,
+        subagent_id: str | None = None,
+        subagent_name: str | None = None,
+    ) -> str:
         data: dict = {"tool": tool, "status": "running"}
         if todos:
             data["todos"] = todos
+        if namespace:
+            data["namespace"] = namespace
+        if subagent_id:
+            data["subagent_id"] = subagent_id
+        if subagent_name:
+            data["subagent_name"] = subagent_name
         return self.format(InternalEventType.TOOL_START, data)
 
-    def make_tool_end_event(self, tool: str) -> str:
-        return self.format(InternalEventType.TOOL_END, {"tool": tool, "status": "completed"})
+    def make_tool_end_event(
+        self,
+        tool: str,
+        namespace: list[str] | None = None,
+        subagent_id: str | None = None,
+        subagent_name: str | None = None,
+    ) -> str:
+        data = {"tool": tool, "status": "completed"}
+        if namespace:
+            data["namespace"] = namespace
+        if subagent_id:
+            data["subagent_id"] = subagent_id
+        if subagent_name:
+            data["subagent_name"] = subagent_name
+        return self.format(InternalEventType.TOOL_END, data)
 
-    def make_interrupt_event(self, data: InterruptData) -> str:
-        return self.format(InternalEventType.INTERRUPT, dict(data))
+    def make_interrupt_event(
+        self,
+        data: InterruptData,
+        namespace: list[str] | None = None,
+        subagent_id: str | None = None,
+        subagent_name: str | None = None,
+    ) -> str:
+        event_data = dict(data)
+        if namespace:
+            event_data["namespace"] = namespace
+        if subagent_id:
+            event_data["subagent_id"] = subagent_id
+        if subagent_name:
+            event_data["subagent_name"] = subagent_name
+        return self.format(InternalEventType.INTERRUPT, event_data)
 
     def make_error_event(self, message: str) -> str:
         return self.format(InternalEventType.ERROR, {"message": message})
@@ -77,11 +129,11 @@ class StreamDataFormatter:
     def extract_interrupt_tool_name(self, data: Any) -> str | None:
         if not isinstance(data, dict) or "__interrupt__" not in data:
             return None
-        
+
         interrupt_list = data.get("__interrupt__", [])
         if not interrupt_list:
             return None
-        
+
         interrupt = interrupt_list[0]
         if hasattr(interrupt, "value"):
             value = interrupt.value
@@ -89,7 +141,7 @@ class StreamDataFormatter:
             value = interrupt.get("value", {})
         else:
             return None
-        
+
         requests = value.get("action_requests", [])
         return requests[0].get("name") if requests else None
 
@@ -103,10 +155,10 @@ class StreamDataFormatter:
     def format_astream_chunk(self, chunk: Any) -> str | None:
         if not isinstance(chunk, tuple) or len(chunk) != 3:
             return None
-        
+
         mode = chunk[1]
         data = chunk[2]
-        
+
         if mode == "messages":
             return self._format_astream_message(data)
         elif mode == "updates":
@@ -116,20 +168,20 @@ class StreamDataFormatter:
     def _format_message(self, data: Any) -> str | None:
         if not isinstance(data, tuple) or len(data) != 2:
             return None
-        
+
         msg, _ = data
-        
+
         # 处理 write_todos 工具调用
-        if hasattr(msg, 'tool_calls') and msg.tool_calls:
+        if hasattr(msg, "tool_calls") and msg.tool_calls:
             for tc in msg.tool_calls:
-                if isinstance(tc, dict) and tc.get('name') == 'write_todos':
-                    todos = tc.get('args', {}).get('todos', [])
-                    return self.sse.make_tool_start_event('write_todos', todos)
-        
+                if isinstance(tc, dict) and tc.get("name") == "write_todos":
+                    todos = tc.get("args", {}).get("todos", [])
+                    return self.sse.make_tool_start_event("write_todos", todos)
+
         # 处理普通内容
         if isinstance(msg, AIMessage) and msg.content:
             return self.sse.make_content_event(msg.content)
-        
+
         return None
 
     def _format_astream_message(self, data: Any) -> str | None:
@@ -146,11 +198,11 @@ class StreamDataFormatter:
     def _format_update(self, data: Any) -> str | None:
         if not isinstance(data, dict):
             return None
-        
+
         interrupt_result = self._format_interrupt(data)
         if interrupt_result:
             return interrupt_result
-        
+
         return self._format_tool_update(data)
 
     def _format_astream_update(self, data: Any) -> str | None:
@@ -161,25 +213,27 @@ class StreamDataFormatter:
     def _format_interrupt(self, data: dict) -> str | None:
         if "__interrupt__" not in data:
             return None
-        
+
         interrupt_list = data.get("__interrupt__", [])
         if not interrupt_list:
             return None
-        
+
         interrupt = interrupt_list[0]
         requests = interrupt.value.get("action_requests", [])
         if not requests:
             return None
-        
+
         request = requests[0]
         tool_name = request.get("name", "Unknown")
-        
-        return self.sse.make_interrupt_event({
-            "info": self.format_interrupt_info(request),
-            "taskName": TASK_DISPLAY_NAMES.get(tool_name, tool_name),
-            "data": sanitize_for_json(interrupt.value),
-            "questions": request.get("args", {}).get("questions"),
-        })
+
+        return self.sse.make_interrupt_event(
+            {
+                "info": self.format_interrupt_info(request),
+                "taskName": TASK_DISPLAY_NAMES.get(tool_name, tool_name),
+                "data": sanitize_for_json(interrupt.value),
+                "questions": request.get("args", {}).get("questions"),
+            }
+        )
 
     def _format_tool_update(self, data: dict) -> str | None:
         # 处理 tools 节点的消息（工具执行结果）
@@ -187,13 +241,13 @@ class StreamDataFormatter:
             tools_data = data["tools"]
             if isinstance(tools_data, dict) and "messages" in tools_data:
                 for msg in tools_data["messages"]:
-                    if hasattr(msg, 'name'):
+                    if hasattr(msg, "name"):
                         return self.sse.make_tool_end_event(msg.name)
-        
+
         for key, value in data.items():
             if key in ["__interrupt__", "tools"]:
                 continue
-            
+
             if isinstance(value, dict):
                 if "input" in value and "output" not in value:
                     if key == "write_todos":
@@ -204,10 +258,10 @@ class StreamDataFormatter:
                     return self.sse.make_tool_end_event(key)
             elif isinstance(value, list):
                 for item in value:
-                    if hasattr(item, 'name') and hasattr(item, 'args'):
-                        tool_name = getattr(item, 'name', key)
+                    if hasattr(item, "name") and hasattr(item, "args"):
+                        tool_name = getattr(item, "name", key)
                         if tool_name == "write_todos":
-                            todos = getattr(item, 'args', {}).get("todos", [])
+                            todos = getattr(item, "args", {}).get("todos", [])
                             return self.sse.make_tool_start_event(tool_name, todos)
                         return self.sse.make_tool_start_event(tool_name)
         return None
@@ -216,7 +270,7 @@ class StreamDataFormatter:
     def format_interrupt_info(request: dict) -> str:
         tool_name = request.get("name", "Unknown")
         args = request.get("args", {})
-        
+
         if tool_name == TOOL_EXECUTE:
             command = args.get("command", "")
             cmd_preview = command[:30] + "..." if len(command) > 30 else command
