@@ -24,7 +24,7 @@ dependencies = [
     "python-multipart>=0.0.6",
     "argon2-cffi>=25.1.0",
     "langchain-core>=1.2.9",
-    "deepagents==0.3.4",
+    "deepagents==0.4.4",
     "redis>=5.0",
     "mem0ai>=1.0.4",
     "mcp>=1.0.0",
