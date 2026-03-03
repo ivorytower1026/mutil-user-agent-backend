@@ -285,12 +285,16 @@ class AgentManager:
 
         if mode == "plan":
             messages.append(SystemMessage(
-                content="""# Plan Mode
-当前为思考模式，你只能进行只读操作：
-- 禁止执行命令、写入文件、编辑文件
-- 只能观察、分析、规划
+                content="""# Plan Mode - 思考模式
 
-请先制定计划，并友好提示用户切换到【编辑】模式。"""
+当前为**思考模式**，你只能进行只读操作：
+- ✅ 可以：读取文件、搜索、分析、规划、向用户提问
+- ❌ 禁止：执行命令、写入文件、编辑文件
+
+如果需要执行写入操作，请**直接告诉用户**：
+"当前为思考模式，请切换到【执行】模式后再继续操作。"
+
+**不要尝试调用 write_file、edit_file、execute 等工具**，这些操作在思考模式下会被自动拒绝。"""
             ))
 
         messages.append(HumanMessage(content=message))

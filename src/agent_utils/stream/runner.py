@@ -90,7 +90,13 @@ class AgentStreamRunner:
             if auto_resume:
                 current_input = Command(resume={"decisions": [{"type": "approve"}]})
             elif auto_reject:
-                current_input = Command(resume={"decisions": [{"type": "reject"}]})
+                # plan 模式下拒绝，并告诉 LLM 原因
+                current_input = Command(resume={
+                    "decisions": [{
+                        "type": "reject",
+                        "message": "当前为思考模式，此操作需要写入权限。请友好提示用户切换到【执行】模式后再继续。不要重复尝试执行此操作。"
+                    }]
+                })
             else:
                 break
     
@@ -122,12 +128,19 @@ class AgentStreamRunner:
         
         Data format: (AIMessageChunk, metadata: dict)
         
-        Note: tool_calls args are streamed incrementally (may be empty in first chunks)
-        For write_todos, we get complete args from updates mode instead.
+        Note: 
+        - tool_calls args are streamed incrementally (may be empty in first chunks)
+        - For write_todos, we get complete args from updates mode instead.
+        - Only output AIMessageChunk content, skip ToolMessage content (internal messages)
         """
         chunks = []
         if isinstance(data, tuple) and len(data) == 2:
             msg, metadata = data
+            
+            # 只处理 AIMessageChunk，跳过 ToolMessage（工具返回结果）
+            msg_type = type(msg).__name__
+            if msg_type == 'ToolMessage':
+                return chunks
             
             if hasattr(msg, 'tool_calls') and msg.tool_calls:
                 for tc in msg.tool_calls:
@@ -146,9 +159,24 @@ class AgentStreamRunner:
             if hasattr(msg, 'content') and msg.content:
                 content = msg.content
                 if isinstance(content, str) and content:
-                    chunks.append(StreamChunk(event=self.formatter.make_content_event(content)))
+                    # 过滤掉内部系统消息
+                    if not self._is_internal_message(content):
+                        chunks.append(StreamChunk(event=self.formatter.make_content_event(content)))
         
         return chunks
+    
+    def _is_internal_message(self, content: str) -> bool:
+        """检查是否是内部系统消息，不应显示给用户"""
+        internal_patterns = [
+            "User rejected the tool call",
+            "Tool call rejected",
+            "Tool result:",
+            "Action rejected",
+        ]
+        for pattern in internal_patterns:
+            if pattern in content:
+                return True
+        return False
     
     def _handle_updates(self, data: dict, mode: str) -> list[StreamChunk]:
         """
