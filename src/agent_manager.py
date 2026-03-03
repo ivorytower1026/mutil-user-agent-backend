@@ -25,11 +25,12 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
 from langgraph.types import Command
 
-from src.agent_utils.formatter import SSEFormatter, StreamDataFormatter
-from src.agent_utils.interrupt import InterruptHandler
+from src.agent_utils.formatter import SSEFormatter
 from src.agent_utils.session import SessionManager
 from src.agent_utils.types import InterruptAction
-from datetime import datetime;
+from src.agent_utils.stream import AgentStreamRunner
+from src.agent_utils.resume_builder import ResumeCommandBuilder
+from datetime import datetime
 logger = get_logger("main-agent")
 
 AUTO_APPROVE_TOOLS = {"execute", "write_file", "edit_file"}
@@ -55,8 +56,7 @@ class AgentManager:
             open=False,
         )
         self.sse_formatter = SSEFormatter()
-        self.stream_formatter = StreamDataFormatter(self.sse_formatter)
-        self.interrupt_handler: InterruptHandler | None = None
+        self.stream_runner: AgentStreamRunner | None = None
         self.session_manager: SessionManager | None = None
         self.mcp_manager = get_mcp_manager()
         self.config_manager = get_agent_config_manager()
@@ -117,7 +117,7 @@ class AgentManager:
             subagents=subagents,
         )
 
-        self.interrupt_handler = InterruptHandler(
+        self.stream_runner = AgentStreamRunner(
             self.compiled_agent, self.sse_formatter
         )
         self.session_manager = SessionManager(self.compiled_agent)
@@ -216,6 +216,7 @@ class AgentManager:
         files: list[str] | None = None,
         mode: str = "build",
     ) -> AsyncIterator[str]:
+        """Stream chat using AgentStreamRunner"""
         queue: asyncio.Queue[str | None] = asyncio.Queue()
         pending = {"count": 2}
 
@@ -223,85 +224,23 @@ class AgentManager:
             thread = db.query(Thread).filter(Thread.thread_id == thread_id).first()
             need_title = thread and thread.title is None
 
+        messages = self._build_messages(message, files, mode)
+        initial_input = {"messages": messages}
+
         async def agent_task():
             try:
                 handler, _ = init_langfuse()
                 callbacks = [handler] if handler else []
-                config = {
-                    "configurable": {"thread_id": thread_id},
-                    "callbacks": callbacks,
-                }
-
-                messages = []
-                if files:
-                    file_list = "\n".join(f"- {path}" for path in files)
-                    messages.append(
-                        SystemMessage(
-                            content=f"当前对话中用户已上传的文件：\n{file_list}"
-                        )
-                    )
-
-                if mode == "plan":
-                    messages.append(
-                        SystemMessage(
-                            content="""# Plan Mode
-
-当前为思考模式，你只能进行只读操作：
-- 禁止执行命令、写入文件、编辑文件
-- 只能观察、分析、规划
-- 可以向用户提问澄清需求
-
-请先制定计划，并友好提示用户当前处于思考模式，请用户切换到【编辑】模式后再执行操作。"""
-                        )
-                    )
-
-                messages.append(HumanMessage(content=message))
-
-                current_input = {"messages": messages}
-
-                while True:
-                    auto_resume = False
-
-                    async for stream_mode, data in self.compiled_agent.astream(
-                        current_input,
-                        config=config,
-                        stream_mode=["messages", "updates"],
-                    ):
-                        tool_name = self.stream_formatter.extract_interrupt_tool_name(
-                            data
-                        )
-
-                        if tool_name in AUTO_APPROVE_TOOLS:
-                            if mode == "build":
-                                auto_resume = True
-                                break
-                            else:
-                                await self.compiled_agent.ainvoke(
-                                    Command(resume={"decisions": [{"type": "reject"}]}),
-                                    config,
-                                )
-                                await queue.put(
-                                    self.sse_formatter.make_error_event(
-                                        "当前为思考模式，请切换到 build 模式执行操作"
-                                    )
-                                )
-                                return
-                        else:
-                            formatted = self.stream_formatter.format_stream_data(
-                                stream_mode, data
-                            )
-                            if formatted:
-                                await queue.put(formatted)
-
-                    if auto_resume:
-                        current_input = Command(
-                            resume={"decisions": [{"type": "approve"}]}
-                        )
-                    else:
-                        break
-
+                
+                async for event in self.stream_runner.run(
+                    thread_id=thread_id,
+                    initial_input=initial_input,
+                    mode=mode,
+                    callbacks=callbacks,
+                ):
+                    await queue.put(event)
             except Exception as e:
-                logger.exception("Error in agent_task")
+                logger.exception("agent_task error")
                 await queue.put(self.sse_formatter.make_error_event(str(e)))
             finally:
                 pending["count"] -= 1
@@ -313,21 +252,9 @@ class AgentManager:
                 pending["count"] -= 1
                 return
             try:
-                with SessionLocal() as db:
-                    flash_llm = get_llm_manager().get_flash_llm(db)
-                    prompt = f"用5-10个字概括主题，只返回标题：{message[:100]}"
-                    response = await flash_llm.ainvoke(prompt)
-                title = str(response.content).strip()[:20]
-
-                with SessionLocal() as db:
-                    thread = (
-                        db.query(Thread).filter(Thread.thread_id == thread_id).first()
-                    )
-                    if thread and thread.title is None:
-                        thread.title = title
-                        db.commit()
-
-                await queue.put(self.sse_formatter.make_title_updated_event(title))
+                title = await self._generate_title(thread_id, message)
+                if title:
+                    await queue.put(self.sse_formatter.make_title_updated_event(title))
             except Exception as e:
                 logger.warning("Title generation failed: %s", e)
             finally:
@@ -335,8 +262,8 @@ class AgentManager:
                 if pending["count"] == 0:
                     await queue.put(None)
 
-        asyncio.create_task(title_task())
         asyncio.create_task(agent_task())
+        asyncio.create_task(title_task())
 
         while True:
             item = await queue.get()
@@ -346,6 +273,49 @@ class AgentManager:
 
         yield self.sse_formatter.make_done_event()
 
+    def _build_messages(self, message: str, files: list[str] | None, mode: str) -> list:
+        """Build message list"""
+        messages = []
+        
+        if files:
+            file_list = "\n".join(f"- {path}" for path in files)
+            messages.append(SystemMessage(
+                content=f"当前对话中用户已上传的文件：\n{file_list}"
+            ))
+
+        if mode == "plan":
+            messages.append(SystemMessage(
+                content="""# Plan Mode
+当前为思考模式，你只能进行只读操作：
+- 禁止执行命令、写入文件、编辑文件
+- 只能观察、分析、规划
+
+请先制定计划，并友好提示用户切换到【编辑】模式。"""
+            ))
+
+        messages.append(HumanMessage(content=message))
+        return messages
+
+    async def _generate_title(self, thread_id: str, message: str) -> str | None:
+        """Generate thread title"""
+        try:
+            with SessionLocal() as db:
+                flash_llm = get_llm_manager().get_flash_llm(db)
+                prompt = f"用5-10个字概括主题，只返回标题：{message[:100]}"
+                response = await flash_llm.ainvoke(prompt)
+            title = str(response.content).strip()[:20]
+            
+            with SessionLocal() as db:
+                thread = db.query(Thread).filter(Thread.thread_id == thread_id).first()
+                if thread and thread.title is None:
+                    thread.title = title
+                    db.commit()
+            
+            return title
+        except Exception as e:
+            logger.warning("Title generation failed: %s", e)
+            return None
+
     async def stream_resume_interrupt(
         self,
         thread_id: str,
@@ -353,16 +323,44 @@ class AgentManager:
         answers: list[str] | None = None,
         mode: str = "build",
     ) -> AsyncIterator[str]:
-        handler, _ = init_langfuse()
+        """Resume interrupted session using ResumeCommandBuilder and AgentStreamRunner"""
+        try:
+            interrupt_action = InterruptAction(action)
+        except ValueError:
+            yield self.sse_formatter.make_error_event(f"无效的 action: {action}")
+            yield self.sse_formatter.make_done_event()
+            return
 
-        async for chunk in self.interrupt_handler.resume(
-            thread_id=thread_id,
-            action=InterruptAction(action),
-            answers=answers,
-            langfuse_handler=handler if handler else None,
-            mode=mode,
-        ):
-            yield chunk
+        snapshot = await self.compiled_agent.aget_state(
+            {"configurable": {"thread_id": thread_id}}
+        )
+
+        resume_command = ResumeCommandBuilder.build(interrupt_action, snapshot, answers)
+
+        if resume_command is None:
+            error_msg = ResumeCommandBuilder.get_error_message(
+                interrupt_action, snapshot, answers
+            )
+            yield self.sse_formatter.make_error_event(error_msg)
+            yield self.sse_formatter.make_done_event()
+            return
+
+        try:
+            handler, _ = init_langfuse()
+            callbacks = [handler] if handler else []
+            
+            async for event in self.stream_runner.run(
+                thread_id=thread_id,
+                initial_input=resume_command,
+                mode=mode,
+                callbacks=callbacks,
+            ):
+                yield event
+        except Exception as e:
+            logger.exception("stream_resume error")
+            yield self.sse_formatter.make_error_event(str(e))
+
+        yield self.sse_formatter.make_done_event()
 
     async def get_status(self, thread_id: str) -> dict:
         return await self.session_manager.get_status(thread_id)

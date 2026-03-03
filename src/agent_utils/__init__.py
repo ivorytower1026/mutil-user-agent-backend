@@ -2,6 +2,8 @@ from .types import SSEEvent, InterruptAction, TOOL_EXECUTE, TOOL_WRITE_FILE, TOO
 from .formatter import SSEFormatter, StreamDataFormatter, sanitize_for_json
 from .interrupt import InterruptHandler
 from .session import SessionManager
+from .stream import AgentStreamRunner, StreamChunk, RunnerState
+from .resume_builder import ResumeCommandBuilder
 
 __all__ = [
     "SSEEvent",
@@ -15,4 +17,8 @@ __all__ = [
     "sanitize_for_json",
     "InterruptHandler",
     "SessionManager",
+    "AgentStreamRunner",
+    "StreamChunk",
+    "RunnerState",
+    "ResumeCommandBuilder",
 ]
