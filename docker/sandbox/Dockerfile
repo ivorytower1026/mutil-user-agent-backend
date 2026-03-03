@@ -1,4 +1,4 @@
-FROM python:3.13-slim
+FROM e2bdev/code-interpreter:latest
 
 ARG HTTP_PROXY
 ARG HTTPS_PROXY
