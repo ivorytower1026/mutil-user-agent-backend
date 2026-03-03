@@ -10,4 +10,7 @@ ENV HTTP_PROXY=${HTTP_PROXY} \
 
 WORKDIR /workspace
 
+USER root
+RUN mkdir -p /workspace && chmod -R 777 /workspace
+
 CMD ["/bin/bash"]
