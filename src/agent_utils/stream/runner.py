@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 class StreamChunk:
     event: str | None = None
     auto_resume: bool = False
+    auto_reject: bool = False  # plan 模式下自动拒绝
     error: str | None = None
 
 
@@ -66,11 +67,15 @@ class AgentStreamRunner:
         
         while True:
             auto_resume = False
+            auto_reject = False
             
             try:
                 async for chunk in self._stream_one_cycle(current_input, config, mode):
                     if chunk.auto_resume:
                         auto_resume = True
+                        break
+                    elif chunk.auto_reject:
+                        auto_reject = True
                         break
                     elif chunk.error:
                         yield chunk.error
@@ -84,6 +89,8 @@ class AgentStreamRunner:
             
             if auto_resume:
                 current_input = Command(resume={"decisions": [{"type": "approve"}]})
+            elif auto_reject:
+                current_input = Command(resume={"decisions": [{"type": "reject"}]})
             else:
                 break
     
@@ -106,8 +113,7 @@ class AgentStreamRunner:
                     yield chunk
             
             elif stream_mode == "updates":
-                chunk = self._handle_updates(data, mode)
-                if chunk:
+                for chunk in self._handle_updates(data, mode):
                     yield chunk
     
     def _handle_messages(self, data: Any) -> list[StreamChunk]:
@@ -115,6 +121,9 @@ class AgentStreamRunner:
         Handle messages stream - LLM token and tool_calls
         
         Data format: (AIMessageChunk, metadata: dict)
+        
+        Note: tool_calls args are streamed incrementally (may be empty in first chunks)
+        For write_todos, we get complete args from updates mode instead.
         """
         chunks = []
         if isinstance(data, tuple) and len(data) == 2:
@@ -128,7 +137,11 @@ class AgentStreamRunner:
                         if name:
                             self._state.last_tool_name = name
                             self._state.last_tool_args = args if isinstance(args, dict) else {}
-                            chunks.append(StreamChunk(event=self.formatter.make_tool_start_event(name)))
+                            # write_todos 不在这里发送 tool/start，在 updates 模式中发送（有完整 todos）
+                            if name != 'write_todos':
+                                chunks.append(StreamChunk(
+                                    event=self.formatter.make_tool_start_event(name)
+                                ))
             
             if hasattr(msg, 'content') and msg.content:
                 content = msg.content
@@ -137,16 +150,38 @@ class AgentStreamRunner:
         
         return chunks
     
-    def _handle_updates(self, data: dict, mode: str) -> StreamChunk | None:
+    def _handle_updates(self, data: dict, mode: str) -> list[StreamChunk]:
         """
         Handle updates stream - tool events and interrupts
         
-        Data format: {"model": ..., "tools": ..., "__interrupt__": ...}
+        Data format: {"agent": ..., "tools": ..., "__interrupt__": ...}
         
-        Note: data["tools"] may be dict instead of ToolMessage
+        Note: 
+        - data["tools"] may be dict instead of ToolMessage
+        - data["agent"] contains complete tool_calls with todos for write_todos
         """
+        chunks = []
+        
         if not isinstance(data, dict):
-            return None
+            return chunks
+        
+        # 处理 model 更新 - 获取完整的 tool_calls 信息（包含 write_todos 的 todos）
+        if "model" in data:
+            model_data = data["model"]
+            if isinstance(model_data, dict) and "messages" in model_data:
+                for msg in model_data.get("messages", []):
+                    if hasattr(msg, "tool_calls") and msg.tool_calls:
+                        for tc in msg.tool_calls:
+                            if isinstance(tc, dict):
+                                name = tc.get("name", "")
+                                if name == "write_todos":
+                                    args = tc.get("args", {})
+                                    todos = args.get("todos", []) if isinstance(args, dict) else []
+                                    self._state.last_tool_name = name
+                                    self._state.last_tool_args = args if isinstance(args, dict) else {}
+                                    chunks.append(StreamChunk(
+                                        event=self.formatter.make_tool_start_event(name, todos)
+                                    ))
         
         if "tools" in data:
             tool_data = data["tools"]
@@ -156,12 +191,14 @@ class AgentStreamRunner:
                 tool_name = tool_data.name
             else:
                 tool_name = self._state.last_tool_name or "unknown"
-            return StreamChunk(event=self.formatter.make_tool_end_event(tool_name))
+            chunks.append(StreamChunk(event=self.formatter.make_tool_end_event(tool_name)))
         
         if "__interrupt__" in data:
-            return self._handle_interrupt(data, mode)
+            interrupt_chunk = self._handle_interrupt(data, mode)
+            if interrupt_chunk.event or interrupt_chunk.auto_resume or interrupt_chunk.auto_reject:
+                chunks.append(interrupt_chunk)
         
-        return None
+        return chunks
     
     def _handle_interrupt(self, data: dict, mode: str) -> StreamChunk:
         """Handle interrupt event"""
@@ -181,9 +218,8 @@ class AgentStreamRunner:
             if mode == "build":
                 return StreamChunk(auto_resume=True)
             else:
-                return StreamChunk(
-                    error=self.formatter.make_error_event("当前为思考模式，请切换到 build 模式执行操作")
-                )
+                # plan 模式下自动拒绝，让 LLM 继续运行并友好提示用户
+                return StreamChunk(auto_reject=True)
         
         return StreamChunk(
             event=self.formatter.make_interrupt_event({
