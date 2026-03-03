@@ -43,22 +43,43 @@ if hasattr(msg, 'content') and msg.content:
 ```python
 # data 是 dict
 {"model": AIMessageChunk(...)}  # LLM 响应
-{"tools": ToolMessage(...)}     # 工具调用结果
+{"tools": ToolMessage(...) | dict}  # 工具调用结果（可能是 dict！）
 {"__interrupt__": [...]}        # 中断
 
-# 处理
+# 处理 - 注意 tools 可能是 dict
 if "tools" in data:
-    tool_msg = data["tools"]
-    yield formatter.tool_end(tool_msg.name)
+    tool_data = data["tools"]
+    # 兼容两种类型
+    if isinstance(tool_data, dict):
+        tool_name = tool_data.get("name", "unknown")
+    elif hasattr(tool_data, 'name'):
+        tool_name = tool_data.name
+    else:
+        tool_name = "unknown"
+    yield formatter.tool_end(tool_name)
 
 if "__interrupt__" in data:
     yield handle_interrupt(data["__interrupt__"])
 ```
 
+### 错误处理
+
+**重要：工具异常会直接抛出，不在流中返回**
+
+```python
+# 必须在 try/except 中捕获
+try:
+    async for chunk in agent.astream(...):
+        ...
+except Exception as e:
+    # 工具异常会到这里
+    yield formatter.error(str(e))
+```
+
 ## 类设计
 
 ```python
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import AsyncIterator, Any
 from langgraph.types import Command
 
@@ -73,12 +94,19 @@ class StreamChunk:
     error: str | None = None      # 错误消息
 
 
+@dataclass
+class RunnerState:
+    """运行时状态"""
+    last_tool_name: str = ""
+    last_tool_args: dict = field(default_factory=dict)
+
+
 class AgentStreamRunner:
     """
     流执行器 - 封装 auto_resume 循环
     
     使用 LangGraph 原生流模式：
-    - messages: LLM token 流
+    - messages: LLM token 流 + tool_calls 检测
     - updates: 状态更新 + 工具事件 + 中断
     
     注意: tools 流模式不可用（返回 0 chunks）
@@ -87,6 +115,7 @@ class AgentStreamRunner:
     def __init__(self, agent: Any, formatter: "SSEFormatter"):
         self.agent = agent
         self.formatter = formatter
+        self._state = RunnerState()
     
     async def run(
         self,
@@ -116,15 +145,20 @@ class AgentStreamRunner:
         while True:
             auto_resume = False
             
-            async for chunk in self._stream_one_cycle(current_input, config, mode):
-                if chunk.auto_resume:
-                    auto_resume = True
-                    break
-                elif chunk.error:
-                    yield chunk.error
-                    return
-                elif chunk.event:
-                    yield chunk.event
+            try:
+                async for chunk in self._stream_one_cycle(current_input, config, mode):
+                    if chunk.auto_resume:
+                        auto_resume = True
+                        break
+                    elif chunk.error:
+                        yield chunk.error
+                        return
+                    elif chunk.event:
+                        yield chunk.event
+            except Exception as e:
+                # 捕获工具异常，生成 SSE error 事件
+                yield self.formatter.error(str(e))
+                return
             
             if auto_resume:
                 current_input = Command(resume={"decisions": [{"type": "approve"}]})
@@ -156,12 +190,27 @@ class AgentStreamRunner:
     
     def _handle_messages(self, data: Any) -> AsyncIterator[StreamChunk]:
         """
-        处理 messages 流 - LLM token
+        处理 messages 流 - LLM token 和 tool_calls
         
         data 格式: (AIMessageChunk, metadata: dict)
         """
         if isinstance(data, tuple) and len(data) == 2:
             msg, metadata = data
+            
+            # 检测 tool_calls（工具调用开始）
+            if hasattr(msg, 'tool_calls') and msg.tool_calls:
+                for tc in msg.tool_calls:
+                    if isinstance(tc, dict):
+                        name = tc.get('name', '')
+                        args = tc.get('args', {})
+                        if name:
+                            # 记录工具调用信息
+                            self._state.last_tool_name = name
+                            self._state.last_tool_args = args if isinstance(args, dict) else {}
+                            # 生成 tool_start 事件
+                            yield StreamChunk(event=self.formatter.tool_start(name))
+            
+            # 处理内容 token
             if hasattr(msg, 'content') and msg.content:
                 content = str(msg.content)
                 if content:
@@ -172,18 +221,23 @@ class AgentStreamRunner:
         处理 updates 流 - 工具事件和中断
         
         data 格式: {"model": ..., "tools": ..., "__interrupt__": ...}
+        
+        注意: data["tools"] 可能是 dict 而非 ToolMessage 对象
         """
         if not isinstance(data, dict):
             return None
         
         # 工具调用结束
         if "tools" in data:
-            tool_msg = data["tools"]
-            if hasattr(tool_msg, 'name'):
-                tool_name = tool_msg.name
-                # 记录工具调用，用于后续中断检测
-                self._last_tool_name = tool_name
-                return StreamChunk(event=self.formatter.tool_end(tool_name))
+            tool_data = data["tools"]
+            # 兼容两种类型：dict 或 ToolMessage
+            if isinstance(tool_data, dict):
+                tool_name = tool_data.get("name", self._state.last_tool_name or "unknown")
+            elif hasattr(tool_data, 'name'):
+                tool_name = tool_data.name
+            else:
+                tool_name = self._state.last_tool_name or "unknown"
+            return StreamChunk(event=self.formatter.tool_end(tool_name))
         
         # 中断
         if "__interrupt__" in data:
@@ -277,11 +331,16 @@ class AgentStreamRunner:
 {"model": AIMessageChunk(content="...")}
 {"__interrupt__": [...]}
 
-# 处理方式
+# 处理方式 - 注意 tools 可能是 dict！
 if "tools" in data:
-    tool_msg = data["tools"]
-    if hasattr(tool_msg, 'name'):
-        yield formatter.tool_end(tool_msg.name)
+    tool_data = data["tools"]
+    if isinstance(tool_data, dict):
+        tool_name = tool_data.get("name", "unknown")
+    elif hasattr(tool_data, 'name'):
+        tool_name = tool_data.name
+    else:
+        tool_name = "unknown"
+    yield formatter.tool_end(tool_name)
 ```
 
 ### 2. subgraphs=True 返回 3-tuple
@@ -307,5 +366,46 @@ async for subgraph_path, stream_mode, data in agent.astream(..., subgraphs=True)
 
 ### 4. 职责单一
 
-- `_handle_messages`: 只处理 LLM token（data 是 tuple）
+- `_handle_messages`: 处理 LLM token + tool_calls 检测（data 是 tuple）
 - `_handle_updates`: 处理工具事件和中断（data 是 dict）
+
+### 5. 错误处理（新增）
+
+工具异常会直接抛出，必须捕获：
+
+```python
+try:
+    async for chunk in self._stream_one_cycle(...):
+        yield chunk
+except Exception as e:
+    # 捕获工具异常
+    yield self.formatter.error(str(e))
+    return
+```
+
+### 6. tool_calls 检测（新增）
+
+在 `messages` 模式中检测工具调用开始：
+
+```python
+if hasattr(msg, 'tool_calls') and msg.tool_calls:
+    for tc in msg.tool_calls:
+        if isinstance(tc, dict) and tc.get('name'):
+            yield formatter.tool_start(tc['name'])
+```
+
+### 7. tools 数据类型兼容（新增）
+
+`data["tools"]` 可能是 `dict` 而非 `ToolMessage`：
+
+```python
+# 实测发现的情况
+{"tools": {"name": "get_weather", ...}}  # dict
+{"tools": ToolMessage(...)}               # ToolMessage 对象
+
+# 必须兼容两种类型
+if isinstance(tool_data, dict):
+    tool_name = tool_data.get("name", "unknown")
+elif hasattr(tool_data, 'name'):
+    tool_name = tool_data.name
+```

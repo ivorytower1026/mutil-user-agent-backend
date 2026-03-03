@@ -481,22 +481,369 @@ async def test_write_todos_format():
     }
 
 
+async def test_error_handling():
+    """测试错误处理格式 - agent 内部抛出异常时的流格式"""
+    print_separator("错误处理格式")
+
+    @tool
+    def error_tool(msg: str) -> str:
+        """一个会抛出异常的工具"""
+        raise ValueError(f"工具内部错误: {msg}")
+
+    tools = [error_tool]
+    checkpointer = MemorySaver()
+
+    agent = create_agent(model=llm, tools=tools, checkpointer=checkpointer)
+
+    config = {"configurable": {"thread_id": "test-error"}}
+
+    print("\n>>> 测试工具抛出异常时的流格式")
+    print("-" * 40)
+
+    results = {
+        "messages_mode": [],
+        "updates_mode": [],
+        "exception_raised": None,
+    }
+
+    try:
+        async for stream_mode, data in agent.astream(
+            {"messages": [HumanMessage(content="用error_tool测试错误消息")]},
+            config=config,
+            stream_mode=["messages", "updates"],
+        ):
+            if stream_mode == "messages":
+                if isinstance(data, tuple) and len(data) == 2:
+                    msg, metadata = data
+                    results["messages_mode"].append({
+                        "msg_type": type(msg).__name__,
+                        "has_error": hasattr(msg, 'is_error') and msg.is_error,
+                        "content_preview": str(msg.content)[:100] if msg.content else None,
+                    })
+            elif stream_mode == "updates":
+                results["updates_mode"].append({
+                    "keys": list(data.keys()) if isinstance(data, dict) else None,
+                    "has_error_key": "error" in data if isinstance(data, dict) else False,
+                    "data_preview": str(data)[:200],
+                })
+
+    except Exception as e:
+        results["exception_raised"] = {
+            "type": type(e).__name__,
+            "message": str(e)[:200],
+        }
+        print(f"    [异常捕获] {type(e).__name__}: {str(e)[:100]}")
+
+    print(f"\n    messages 模式 chunks: {len(results['messages_mode'])}")
+    for i, m in enumerate(results['messages_mode'][:3]):
+        print(f"      [{i+1}] {m}")
+
+    print(f"\n    updates 模式 chunks: {len(results['updates_mode'])}")
+    for i, u in enumerate(results['updates_mode'][:3]):
+        print(f"      [{i+1}] {u}")
+
+    print(f"\n    exception_raised: {results['exception_raised']}")
+
+    return results
+
+
+async def test_resume_format():
+    """测试中断恢复后的流格式"""
+    print_separator("中断恢复后的流格式")
+
+    interrupt_flag = {"count": 0}
+
+    @tool
+    def need_confirm(action: str) -> str:
+        """需要确认的操作"""
+        return f"已执行: {action}"
+
+    tools = [need_confirm]
+    checkpointer = MemorySaver()
+
+    from langgraph.prebuilt.interrupt import HumanInterrupt
+    from langgraph.types import Command
+
+    agent = create_agent(
+        model=llm,
+        tools=tools,
+        checkpointer=checkpointer,
+        interrupt_before=["tools"],
+    )
+
+    thread_id = "test-resume-format"
+    config = {"configurable": {"thread_id": thread_id}}
+
+    print("\n>>> 第一阶段: 触发中断")
+    print("-" * 40)
+
+    first_run_chunks = []
+    async for stream_mode, data in agent.astream(
+        {"messages": [HumanMessage(content="用need_confirm执行测试")]},
+        config=config,
+        stream_mode=["updates"],
+    ):
+        first_run_chunks.append({
+            "stream_mode": stream_mode,
+            "data_keys": list(data.keys()) if isinstance(data, dict) else None,
+        })
+
+    print(f"    第一阶段 chunks: {len(first_run_chunks)}")
+    for c in first_run_chunks:
+        print(f"      {c}")
+
+    print("\n>>> 获取当前状态 (snapshot)")
+    print("-" * 40)
+
+    snapshot = await agent.aget_state(config)
+    snapshot_info = {
+        "has_tasks": hasattr(snapshot, 'tasks') and snapshot.tasks is not None,
+        "next_nodes": list(snapshot.next) if hasattr(snapshot, 'next') else [],
+        "values_keys": list(snapshot.values.keys()) if hasattr(snapshot, 'values') and snapshot.values else [],
+    }
+    print(f"    snapshot: {json.dumps(snapshot_info, ensure_ascii=False)}")
+
+    print("\n>>> 第二阶段: 恢复执行 (Command)")
+    print("-" * 40)
+
+    resume_command = Command(resume={"decisions": [{"type": "approve"}]})
+    resume_chunks = []
+    exception_info = None
+
+    try:
+        async for stream_mode, data in agent.astream(
+            resume_command,
+            config=config,
+            stream_mode=["messages", "updates"],
+        ):
+            chunk_info = {
+                "stream_mode": stream_mode,
+                "data_type": type(data).__name__,
+            }
+            if isinstance(data, dict):
+                chunk_info["keys"] = list(data.keys())
+            elif isinstance(data, tuple):
+                chunk_info["tuple_length"] = len(data)
+            resume_chunks.append(chunk_info)
+    except Exception as e:
+        exception_info = {"type": type(e).__name__, "message": str(e)[:200]}
+        print(f"    [异常] {exception_info}")
+
+    print(f"    恢复后 chunks: {len(resume_chunks)}")
+    for i, c in enumerate(resume_chunks[:5]):
+        print(f"      [{i+1}] {c}")
+    if len(resume_chunks) > 5:
+        print(f"      ... ({len(resume_chunks) - 5} more)")
+
+    return {
+        "first_run": first_run_chunks,
+        "snapshot": snapshot_info,
+        "resume": resume_chunks,
+        "exception": exception_info,
+    }
+
+
+async def test_values_state_structure():
+    """测试 values 模式的 state 结构"""
+    print_separator("values 模式 state 结构")
+
+    tools = [get_weather]
+    checkpointer = MemorySaver()
+
+    agent = create_agent(model=llm, tools=tools, checkpointer=checkpointer)
+
+    config = {"configurable": {"thread_id": "test-values-state"}}
+
+    print("\n>>> 详细分析 values 模式的 state 结构")
+    print("-" * 40)
+
+    values_chunks = []
+    async for stream_mode, data in agent.astream(
+        {"messages": [HumanMessage(content="北京天气")]},
+        config=config,
+        stream_mode=["values"],
+    ):
+        chunk_info = {
+            "stream_mode": stream_mode,
+            "keys": list(data.keys()) if isinstance(data, dict) else [],
+        }
+
+        if isinstance(data, dict):
+            if "messages" in data:
+                messages = data["messages"]
+                chunk_info["messages_count"] = len(messages)
+                chunk_info["message_types"] = [type(m).__name__ for m in messages[-3:]]
+                if messages:
+                    last_msg = messages[-1]
+                    chunk_info["last_msg_preview"] = str(getattr(last_msg, 'content', ''))[:50]
+
+            for key in ["agent", "tools", "model"]:
+                if key in data:
+                    chunk_info[f"has_{key}"] = True
+
+        values_chunks.append(chunk_info)
+
+    print(f"    Total values chunks: {len(values_chunks)}")
+    for i, c in enumerate(values_chunks):
+        print(f"\n    [Chunk {i+1}]")
+        for k, v in c.items():
+            if k != "stream_mode":
+                print(f"      {k}: {v}")
+
+    return values_chunks
+
+
+async def test_concurrent_stream():
+    """测试并发/重入 - 同一 thread_id 同时发起两个 astream"""
+    print_separator("并发/重入测试")
+
+    tools = [get_weather]
+    checkpointer = MemorySaver()
+
+    agent = create_agent(model=llm, tools=tools, checkpointer=checkpointer)
+
+    thread_id = "test-concurrent"
+    config1 = {"configurable": {"thread_id": thread_id}}
+    config2 = {"configurable": {"thread_id": thread_id}}
+
+    results = {
+        "stream1_chunks": 0,
+        "stream2_chunks": 0,
+        "stream1_error": None,
+        "stream2_error": None,
+    }
+
+    async def run_stream1():
+        try:
+            async for _ in agent.astream(
+                {"messages": [HumanMessage(content="北京天气")]},
+                config=config1,
+                stream_mode=["updates"],
+            ):
+                results["stream1_chunks"] += 1
+        except Exception as e:
+            results["stream1_error"] = {"type": type(e).__name__, "message": str(e)[:100]}
+
+    async def run_stream2():
+        await asyncio.sleep(0.1)
+        try:
+            async for _ in agent.astream(
+                {"messages": [HumanMessage(content="上海天气")]},
+                config=config2,
+                stream_mode=["updates"],
+            ):
+                results["stream2_chunks"] += 1
+        except Exception as e:
+            results["stream2_error"] = {"type": type(e).__name__, "message": str(e)[:100]}
+
+    print("\n>>> 同时启动两个相同 thread_id 的流")
+    print("-" * 40)
+
+    await asyncio.gather(run_stream1(), run_stream2())
+
+    print(f"    Stream 1: chunks={results['stream1_chunks']}, error={results['stream1_error']}")
+    print(f"    Stream 2: chunks={results['stream2_chunks']}, error={results['stream2_error']}")
+
+    if results["stream1_error"] or results["stream2_error"]:
+        print("\n    结论: 并发流会抛出异常")
+    else:
+        print("\n    结论: 并发流正常执行（可能串行化）")
+
+    return results
+
+
+async def test_stream_cancellation():
+    """测试流取消 - 客户端断开时的处理"""
+    print_separator("流取消测试")
+
+    tools = [get_weather]
+    checkpointer = MemorySaver()
+
+    agent = create_agent(model=llm, tools=tools, checkpointer=checkpointer)
+
+    thread_id = "test-cancellation"
+    config = {"configurable": {"thread_id": thread_id}}
+
+    print("\n>>> 模拟客户端断开（中途取消迭代）")
+    print("-" * 40)
+
+    chunks_collected = 0
+    gen = agent.astream(
+        {"messages": [HumanMessage(content="北京天气如何？请详细说明")]},
+        config=config,
+        stream_mode=["messages"],
+    )
+
+    try:
+        async for chunk in gen:
+            chunks_collected += 1
+            if chunks_collected >= 3:
+                print(f"    收集了 {chunks_collected} 个 chunks，模拟断开...")
+                break
+    except Exception as e:
+        print(f"    迭代异常: {type(e).__name__}: {str(e)[:50]}")
+
+    print(f"    中断时收集的 chunks: {chunks_collected}")
+
+    print("\n>>> 检查中断后的 checkpoint 状态")
+    print("-" * 40)
+
+    snapshot = await agent.aget_state(config)
+    state_info = {
+        "next": list(snapshot.next) if hasattr(snapshot, 'next') else [],
+        "values_keys": list(snapshot.values.keys()) if hasattr(snapshot, 'values') and snapshot.values else [],
+        "messages_count": len(snapshot.values.get("messages", [])) if hasattr(snapshot, 'values') else 0,
+    }
+    print(f"    checkpoint state: {json.dumps(state_info, ensure_ascii=False)}")
+
+    print("\n>>> 尝试恢复执行")
+    print("-" * 40)
+
+    try:
+        resume_chunks = 0
+        async for chunk in agent.astream(
+            {"messages": [HumanMessage(content="继续")]},
+            config=config,
+            stream_mode=["updates"],
+        ):
+            resume_chunks += 1
+        print(f"    恢复后 chunks: {resume_chunks}")
+        print("    结论: 流取消后可以正常恢复")
+    except Exception as e:
+        print(f"    恢复异常: {type(e).__name__}: {str(e)[:100]}")
+
+    return {
+        "chunks_before_cancel": chunks_collected,
+        "state_after_cancel": state_info,
+    }
+
+
 async def main():
     print("\n" + "=" * 60)
-    print(" LangGraph 流格式测试 (精简版)")
+    print(" LangGraph 流格式测试 (完整版)")
     print(f" 时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 60)
 
     all_results = {}
 
-    # all_results["tuple_vs_single"] = await test_tuple_vs_single()
-    # all_results["stream_modes"] = await test_stream_modes()
-    # all_results["tools_stream"] = await test_tools_stream()
-    # all_results["subgraphs"] = await test_subgraphs_format()
-    # all_results["interrupt"] = await test_interrupt_format()
-    # all_results["messages_detailed"] = await test_messages_detailed()
-    # all_results["tool_calls"] = await test_tool_calls_format()
+    all_results["tuple_vs_single"] = await test_tuple_vs_single()
+    all_results["stream_modes"] = await test_stream_modes()
+    all_results["tools_stream"] = await test_tools_stream()
+    all_results["subgraphs"] = await test_subgraphs_format()
+    all_results["interrupt"] = await test_interrupt_format()
+    all_results["messages_detailed"] = await test_messages_detailed()
+    all_results["tool_calls"] = await test_tool_calls_format()
     all_results["write_todos"] = await test_write_todos_format()
+
+    print("\n" + "=" * 60)
+    print(" SSE 相关测试")
+    print("=" * 60)
+
+    all_results["error_handling"] = await test_error_handling()
+    all_results["resume_format"] = await test_resume_format()
+    all_results["values_state"] = await test_values_state_structure()
+    all_results["concurrent"] = await test_concurrent_stream()
+    all_results["cancellation"] = await test_stream_cancellation()
 
     print("\n" + "=" * 60)
     print(" 测试完成!")

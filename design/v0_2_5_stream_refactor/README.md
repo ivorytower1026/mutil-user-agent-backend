@@ -123,18 +123,42 @@ async for subgraph_path, stream_mode, data in agent.astream(
         # data 是 tuple: (AIMessageChunk, metadata)
         if isinstance(data, tuple) and len(data) == 2:
             msg, metadata = data
+            # 检测 tool_calls
+            if hasattr(msg, 'tool_calls') and msg.tool_calls:
+                for tc in msg.tool_calls:
+                    if tc.get('name'):
+                        yield formatter.make_tool_start_event(tc['name'])
+            # 处理内容
             if hasattr(msg, 'content') and msg.content:
-                yield formatter.content(str(msg.content))
+                yield formatter.make_content_event(str(msg.content))
     
     elif stream_mode == "updates":
         # data 是 dict: {"model": ..., "tools": ...}
+        # 注意: data["tools"] 可能是 dict 而非 ToolMessage
         if "tools" in data:
-            tool_msg = data["tools"]
-            if hasattr(tool_msg, 'name'):
-                yield formatter.tool_end(tool_msg.name)
+            tool_data = data["tools"]
+            if isinstance(tool_data, dict):
+                tool_name = tool_data.get("name", "unknown")
+            elif hasattr(tool_data, 'name'):
+                tool_name = tool_data.name
+            else:
+                tool_name = "unknown"
+            yield formatter.make_tool_end_event(tool_name)
         
         if "__interrupt__" in data:
-            yield formatter.interrupt(data["__interrupt__"])
+            yield formatter.make_interrupt_event(data["__interrupt__"])
+```
+
+### 统一的错误处理
+
+```python
+# 工具异常会直接抛出，必须捕获
+try:
+    async for chunk in self._stream_one_cycle(...):
+        yield chunk
+except Exception as e:
+    yield formatter.make_error_event(str(e))
+    return
 ```
 
 ### 统一的 auto_resume 处理
@@ -147,5 +171,17 @@ if stream_mode == "updates" and "__interrupt__" in data:
         auto_resume = True
         break
     else:
-        yield formatter.interrupt(data)
+        yield formatter.make_interrupt_event(data)
 ```
+
+## SSE 相关测试
+
+测试文件 `tests/test_langgraph_stream_format.py` 覆盖以下场景：
+
+| 测试项 | 说明 | 关键发现 |
+|--------|------|---------|
+| 错误处理 | 工具抛出异常 | 异常直接抛出，需 try/except |
+| 中断恢复 | Command(resume=...) | 格式与正常流一致 |
+| values state | state 累积 | 仅用于调试 |
+| 并发重入 | 同 thread_id 并发 | 串行化执行，无异常 |
+| 流取消 | 客户端断开 | checkpoint 正常保存 |

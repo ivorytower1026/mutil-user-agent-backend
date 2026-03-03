@@ -70,6 +70,8 @@ class AgentManager:
                 handler, _ = init_langfuse()
                 callbacks = [handler] if handler else []
                 
+                # AgentStreamRunner.run() 内部已处理异常
+                # 这里不需要额外的 try/except
                 async for event in self.stream_runner.run(
                     thread_id=thread_id,
                     initial_input=initial_input,
@@ -78,8 +80,9 @@ class AgentManager:
                 ):
                     await queue.put(event)
             except Exception as e:
+                # 仅捕获非流异常（如初始化失败）
                 logger.exception("agent_task error")
-                await queue.put(self.formatter.error(str(e)))
+                await queue.put(self.formatter.make_error_event(str(e)))
             finally:
                 pending["count"] -= 1
                 if pending["count"] == 0:
@@ -92,7 +95,7 @@ class AgentManager:
             try:
                 title = await self._generate_title(thread_id, message)
                 if title:
-                    await queue.put(self.formatter.title_updated(title))
+                    await queue.put(self.formatter.make_title_updated_event(title))
             except Exception as e:
                 logger.warning("Title generation failed: %s", e)
             finally:
@@ -109,7 +112,7 @@ class AgentManager:
                 break
             yield item
 
-        yield self.formatter.done()
+        yield self.formatter.make_done_event()
 
     async def stream_resume_interrupt(
         self,
@@ -124,8 +127,8 @@ class AgentManager:
         try:
             interrupt_action = InterruptAction(action)
         except ValueError:
-            yield self.formatter.error(f"无效的 action: {action}")
-            yield self.formatter.done()
+            yield self.formatter.make_error_event(f"无效的 action: {action}")
+            yield self.formatter.make_done_event()
             return
 
         snapshot = await self.compiled_agent.aget_state(
@@ -138,14 +141,15 @@ class AgentManager:
             error_msg = ResumeCommandBuilder.get_error_message(
                 interrupt_action, snapshot, answers
             )
-            yield self.formatter.error(error_msg)
-            yield self.formatter.done()
+            yield self.formatter.make_error_event(error_msg)
+            yield self.formatter.make_done_event()
             return
 
         try:
             handler, _ = init_langfuse()
             callbacks = [handler] if handler else []
             
+            # AgentStreamRunner.run() 内部已处理异常
             async for event in self.stream_runner.run(
                 thread_id=thread_id,
                 initial_input=resume_command,
@@ -154,10 +158,11 @@ class AgentManager:
             ):
                 yield event
         except Exception as e:
+            # 仅捕获非流异常
             logger.exception("stream_resume error")
-            yield self.formatter.error(str(e))
+            yield self.formatter.make_error_event(str(e))
 
-        yield self.formatter.done()
+        yield self.formatter.make_done_event()
 
     def _build_messages(self, message: str, files: list[str] | None, mode: str) -> list:
         """构建消息列表"""
@@ -216,7 +221,8 @@ class AgentManager:
 |------|--------|--------|
 | 行数 | ~140 行 | ~50 行 |
 | 流处理 | 内联 | 委托给 stream_runner |
-| 工具事件解析 | 手动 | LangGraph tools 流模式 |
+| 工具事件解析 | 手动 | LangGraph updates 模式 |
+| 错误处理 | 分散 | 集中在 stream_runner |
 
 ### stream_resume_interrupt
 
@@ -229,5 +235,6 @@ class AgentManager:
 
 1. **代码量减少** - 从 ~350 行减少到 ~150 行
 2. **职责清晰** - 流处理 vs 业务逻辑分离
-3. **使用原生能力** - 利用 LangGraph tools 流模式
+3. **使用原生能力** - LangGraph messages + updates 模式
 4. **易于测试** - 可以单独测试 Runner 和 Builder
+5. **错误处理统一** - 工具异常在 stream_runner 中统一处理
