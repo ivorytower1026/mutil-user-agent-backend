@@ -2,7 +2,7 @@
 from pathlib import Path
 from datetime import datetime
 from xml.etree import ElementTree as ET
-from urllib.parse import quote, unquote
+from urllib.parse import quote
 import shutil
 
 from fastapi import HTTPException

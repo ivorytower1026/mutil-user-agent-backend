@@ -6,8 +6,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from src.config import settings
-from src.database import AgentConfigModel, SessionLocal
+from src.database import AgentConfigModel
 from src.utils.get_logger import get_logger
 
 logger = get_logger("agent-config-manager")

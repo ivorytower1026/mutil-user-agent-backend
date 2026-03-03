@@ -7,7 +7,6 @@ from typing import Any
 from langchain_core.tools import BaseTool
 from sqlalchemy.orm import Session
 
-from src.config import settings
 from src.database import McpServer, SessionLocal
 from src.utils.get_logger import get_logger
 
