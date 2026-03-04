@@ -1,7 +1,7 @@
 """Agent configuration manager for loading and caching agent configs."""
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -106,7 +106,7 @@ class AgentConfigManager:
             main_config = AgentConfig(default=DEFAULT_MAIN_CONFIG)
             self._configs["main"] = main_config
 
-        self._last_reload = datetime.utcnow()
+        self._last_reload = datetime.now(UTC)
 
         logger.info(f"[AgentConfigManager] Loaded {len(self._configs)} configs")
         return self._configs

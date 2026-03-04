@@ -4,7 +4,7 @@ import asyncio
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
 from src.database import get_db, User, Skill
@@ -68,8 +68,7 @@ class SkillResponse(BaseModel):
     task_results: Optional[list] = None
     regression_results: Optional[dict] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class SkillListResponse(BaseModel):
@@ -242,8 +241,7 @@ class SimpleSkillResponse(BaseModel):
     format_warnings: list = []
     created_at: Optional[str] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class SimpleSkillListResponse(BaseModel):

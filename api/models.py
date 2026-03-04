@@ -1,5 +1,5 @@
 from datetime import datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Literal, Optional, Any
 
 
@@ -154,8 +154,7 @@ class LlmConfigResponse(BaseModel):
     created_at: str | None
     updated_at: str | None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class LlmConfigListResponse(BaseModel):
