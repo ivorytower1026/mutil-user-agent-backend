@@ -59,12 +59,12 @@ MEMORY_SYSTEM_PROMPT = """
    - 业务规则（折扣计算、用户权限）
 
 示例：
-- 用户说"我喜欢用 TypeScript" → save_memory("用户偏好使用 TypeScript", {"category": "preference"})
-- 用户说"我是后端工程师，主要用 Java" → save_memory("用户是后端工程师，技术栈为 Java", {"category": "background"})
+- 用户说"我喜欢用 TypeScript" → add_memory("用户偏好使用 TypeScript", {"category": "preference"})
+- 用户说"我是后端工程师，主要用 Java" → add_memory("用户是后端工程师，技术栈为 Java", {"category": "background"})
 
 ## 何时检索记忆
 
-在以下情况下，主动调用 search_memory 检索相关信息：
+在以下情况下，主动调用 search_memories 检索相关信息：
 
 1. **用户询问过往信息**
    - "我之前说过我喜欢什么语言？"
@@ -76,8 +76,8 @@ MEMORY_SYSTEM_PROMPT = """
    - 解释概念时，根据用户背景调整深度
 
 示例：
-- 用户问"我应该用哪个框架？" → search_memory("技术栈 框架偏好")
-- 用户说"继续" → search_memory("任务进度 当前任务")
+- 用户问"我应该用哪个框架？" → search_memories("技术栈 框架偏好")
+- 用户说"继续" → search_memories("任务进度 当前任务")
 
 ## 记忆管理原则
 

@@ -93,203 +93,106 @@ save_memory(
 
 ## 三、记忆工具设计
 
-### 3.1 工具列表
+> **参考**: [TOOL_REDESIGN.md](./TOOL_REDESIGN.md) - 完整的工具重设计方案
 
-| 工具名 | 功能 | 参数 | 返回值 |
-|--------|------|------|--------|
-| `save_memory` | 保存记忆 | content, metadata | 保存结果 |
-| `search_memory` | 检索记忆 | query, limit | 记忆列表 |
-| `list_memories` | 列出记忆 | limit | 记忆列表 |
-| `delete_memory` | 删除记忆 | memory_id | 成功/失败 |
+### 3.1 工具列表（参考官方实现）
 
-### 3.2 save_memory 工具
+| 工具名 | 功能 | 主要参数 |
+|--------|------|---------|
+| `add_memory` | 保存文本或对话历史 | text, messages, metadata |
+| `search_memories` | 语义搜索记忆 | query, filters, limit |
+| `get_memories` | 过滤浏览记忆（支持分页） | filters, page, page_size |
+| `get_memory` | 获取单个记忆 | memory_id |
+| `update_memory` | 更新记忆内容 | memory_id, text |
+| `delete_memory` | 删除单个记忆 | memory_id |
+| `delete_all_memories` | 批量删除记忆 | user_id, agent_id, app_id, run_id |
+| `delete_entities` | 删除实体及记忆 | user_id, agent_id, app_id, run_id |
+| `list_entities` | 列出所有实体 | 无 |
 
-**功能**：保存信息到记忆系统
+### 3.2 核心改进
 
-**参数**：
-- `content`: str - 要保存的内容（必需）
-- `metadata`: dict | None - 元数据（可选）
+#### 1. 灵活的保存方式
 
-**行为**：
-1. Agent 判断信息是否值得保存为长期记忆
-2. Mem0 自动进行：
-   - LLM 提取关键信息
-   - 冲突检测（是否需要更新已有记忆）
-   - 决策处理（ADD/UPDATE/DELETE/NONE）
-   - 向量化并存储
-
-**关键代码**：
 ```python
-def _create_save_memory_tool(self) -> BaseTool:
-    """创建保存记忆工具"""
-    def save_memory(
-        content: str,
-        metadata: dict | None = None,
-        state: Annotated[dict, InjectedState] = None,
-    ) -> str:
-        """
-        保存信息到长期记忆系统
-        
-        Args:
-            content: 要保存的内容
-            metadata: 可选的元数据
-            state: 注入的状态（自动获取）
-        
-        Returns:
-            保存结果
-        """
-        # 从 state 中提取 user_id
-        user_id = self._extract_user_id(state)
-        
-        try:
-            kwargs = {
-                "content": content,
-                "user_id": user_id,
-            }
-            
-            # 添加元数据
-            if metadata:
-                kwargs["metadata"] = metadata
-            
-            # 调用 mem0 保存
-            result = self._memory_client.add(**kwargs)
-            
-            logger.info(
-                f"[MemoryManager] Saved memory: {content[:50]}"
-            )
-            
-            return f"记忆已保存: {result}"
-        
-        except Exception as e:
-            logger.exception(f"[MemoryManager] Failed to save memory: {e}")
-            return f"保存失败: {str(e)}"
-    
-    return StructuredTool.from_function(
-        name="save_memory",
-        description="""保存信息到长期记忆系统。
+# 方式1: 简单文本
+add_memory(
+    text="用户偏好使用 Python 进行数据分析",
+    metadata={"category": "preference"}
+)
 
-何时保存长期记忆:
-- 用户明确表达的个人偏好（编程语言、框架、工具）
-- 用户的工作背景、技术栈
-- 重要的项目信息、配置
-- 跨会话有价值的信息
-
-示例:
-- save_memory("用户喜欢使用 Python 做数据分析", {"category": "preference"})
-- save_memory("用户是后端工程师，技术栈为 Java", {"category": "background"})
-
-注: 会话级短期记忆由LangGraph自动管理，无需手动保存
-        """,
-        func=save_memory,
-    )
+# 方式2: 对话历史
+add_memory(
+    messages=[
+        {"role": "user", "content": "我是后端工程师"},
+        {"role": "assistant", "content": "好的，我记住了"}
+    ],
+    metadata={"category": "background"}
+)
 ```
 
-### 3.3 search_memory 工具
+#### 2. 高级过滤功能
 
-**功能**：检索相关记忆
-
-**参数**：
-- `query`: str - 查询内容（必需）
-- `limit`: int - 返回数量（默认 5）
-
-**行为**：
-1. 向量化查询
-2. 向量检索（User级长期记忆）
-3. 按相关性排序返回（mem0 自动管理）
-
-**关键代码**：
 ```python
-def _create_search_memory_tool(self) -> BaseTool:
-    """创建检索记忆工具"""
-    def search_memory(
-        query: str,
-        limit: int = 5,
-        state: Annotated[dict, InjectedState] = None,
-    ) -> str:
-        """
-        检索相关记忆
-        
-        Args:
-            query: 查询内容
-            limit: 返回数量（默认 5）
-            state: 注入的状态（自动获取）
-        
-        Returns:
-            记忆列表（JSON 格式）
-        """
-        user_id = self._extract_user_id(state)
-        
-        try:
-            results = self._memory_client.search(
-                query=query,
-                user_id=user_id,
-                limit=limit,
-            )
-            
-            # 格式化返回
-            memories = results.get("results", [])
-            formatted = []
-            for m in memories:
-                formatted.append({
-                    "memory": m.get("memory"),
-                    "score": m.get("score"),
-                    "metadata": m.get("metadata"),
-                })
-            
-            logger.info(
-                f"[MemoryManager] Searched memory: query='{query}', found={len(memories)}"
-            )
-            
-            return json.dumps(formatted, ensure_ascii=False, indent=2)
-        
-        except Exception as e:
-            logger.exception(f"[MemoryManager] Failed to search memory: {e}")
-            return f"检索失败: {str(e)}"
-    
-    return StructuredTool.from_function(
-        name="search_memory",
-        description="""检索相关记忆。
+# 单个用户
+search_memories(
+    query="编程语言",
+    filters={"AND": [{"user_id": "john"}]}
+)
 
-何时检索记忆:
-- 用户询问"我之前说过..."、"我的偏好是..."
-- 需要了解用户背景来做决策
-- 继续之前的任务，需要上下文
+# 时间范围
+get_memories(
+    filters={"AND": [
+        {"user_id": "john"},
+        {"created_at": {"gte": "2024-01-01"}}
+    ]}
+)
 
-示例:
-- search_memory("用户的编程语言偏好")
-- search_memory("技术栈")
-        """,
-        func=search_memory,
-    )
+# 复杂查询
+search_memories(
+    query="技术栈",
+    filters={"OR": [
+        {"user_id": "john"},
+        {"agent_id": "assistant"}
+    ]}
+)
 ```
 
-### 3.4 list_memories 和 delete_memory 工具
+#### 3. 分页支持
 
-**list_memories**: 列出用户的所有记忆
 ```python
-def list_memories(
-    limit: int = 10,
-    state: Annotated[dict, InjectedState] = None,
-) -> str:
-    """列出所有记忆"""
-    user_id = self._extract_user_id(state)
-    
-    results = self._memory_client.get_all(user_id=user_id, limit=limit)
-    return json.dumps(results, ensure_ascii=False, indent=2)
+# 第1页，每页10条
+get_memories(page=1, page_size=10)
+
+# 第2页
+get_memories(page=2, page_size=10)
 ```
 
-**delete_memory**: 删除特定记忆
-```python
-def delete_memory(
-    memory_id: str,
-    state: Annotated[dict, InjectedState] = None,
-) -> str:
-    """删除记忆"""
-    user_id = self._extract_user_id(state)
-    
-    self._memory_client.delete(memory_id)
-    return f"记忆 {memory_id} 已删除"
-```
+### 3.3 实现优先级
+
+**Phase 1: 核心工具（必需）**
+- [x] `add_memory` - 保存记忆
+- [x] `search_memories` - 搜索记忆
+- [x] `get_memories` - 列出记忆
+- [x] `delete_memory` - 删除记忆
+
+**Phase 2: 管理工具（重要）**
+- [ ] `get_memory` - 获取单个记忆
+- [ ] `update_memory` - 更新记忆
+- [ ] `delete_all_memories` - 批量删除
+
+**Phase 3: 高级工具（可选）**
+- [ ] `list_entities` - 列出实体
+- [ ] `delete_entities` - 删除实体
+
+### 3.4 兼容性说明
+
+旧工具名称将作为别名保留：
+- `save_memory` → `add_memory`
+- `search_memory` → `search_memories`
+- `list_memories` → `get_memories`
+
+---
+
 
 ## 四、MemoryManager 核心实现
 
