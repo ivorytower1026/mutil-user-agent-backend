@@ -2,6 +2,11 @@
 
 > **重要说明**: 本方案仅实现User级长期记忆。Session级短期记忆由LangGraph Checkpointer自动管理,框架已内置完整支持。
 
+## 📚 文档导航
+
+- **后端集成方案**（本文档）- 后端架构设计和实现细节
+- **[前端对接文档](./frontend-integration.md)** - 前端配置管理界面集成指南
+
 ## 一、架构概述
 
 ### 1.1 核心架构
@@ -299,8 +304,11 @@ from langchain_core.tools import BaseTool, StructuredTool
 from langchain_core.tools import InjectedState
 from typing import Annotated
 import json
+from sqlalchemy.orm import Session
 
 from src.config import settings
+from src.llm_manager import get_llm_manager
+from src.database import SessionLocal
 from src.utils.get_logger import get_logger
 
 logger = get_logger("memory-manager")
@@ -317,40 +325,131 @@ class MemoryManager:
             cls._instance = super().__new__(cls)
         return cls._instance
     
-    def init(self):
-        """初始化 mem0 客户端"""
-        config = {
-            "vector_store": {
-                "provider": "qdrant",
-                "config": {
-                    "collection_name": settings.MEM0_COLLECTION_NAME,
-                    "host": settings.MEM0_QDRANT_HOST,
-                    "port": settings.MEM0_QDRANT_PORT,
-                    "embedding_model_dims": settings.MEM0_EMBEDDING_DIMS,
-                },
-            },
-            "llm": {
-                "provider": "openai",
-                "config": {
-                    "model": settings.MEM0_LLM_MODEL,
-                    "openai_api_key": settings.ZHIPUAI_API_KEY,
-                    "openai_api_base": settings.ZHIPUAI_API_BASE,
-                    "temperature": 0,
-                },
-            },
-            "embedder": {
-                "provider": "openai",
-                "config": {
-                    "model": settings.MEM0_EMBEDDING_MODEL,
-                    "api_key": settings.MEM0_EMBEDDING_API_KEY,
-                    "openai_base_url": settings.MEM0_EMBEDDING_BASE_URL,
-                    "embedding_dims": settings.MEM0_EMBEDDING_DIMS,
-                },
+    def init(self, db: Session):
+        """
+        初始化 mem0 客户端
+        
+        Args:
+            db: 数据库会话，用于获取模型配置
+        """
+        # 从数据库获取LLM和Embedding配置
+        llm_config = self._get_llm_config(db)
+        embedding_config = self._get_embedding_config(db)
+        
+        # Qdrant配置（暂时使用环境变量，未来可扩展到数据库）
+        vector_store_config = {
+            "provider": "qdrant",
+            "config": {
+                "collection_name": settings.MEM0_COLLECTION_NAME,
+                "host": settings.MEM0_QDRANT_HOST,
+                "port": settings.MEM0_QDRANT_PORT,
+                "embedding_model_dims": embedding_config["config"]["embedding_dims"],
             },
         }
         
+        config = {
+            "vector_store": vector_store_config,
+            "llm": llm_config,
+            "embedder": embedding_config,
+        }
+        
         self._memory_client = Memory.from_config(config)
-        logger.info("[MemoryManager] Initialized mem0 client")
+        logger.info("[MemoryManager] Initialized mem0 client with DB config")
+    
+    def _get_llm_config(self, db: Session) -> dict:
+        """
+        从数据库获取Mem0的LLM配置（复用big角色）
+        
+        Args:
+            db: 数据库会话
+            
+        Returns:
+            Mem0 LLM配置字典
+        """
+        llm_manager = get_llm_manager()
+        config = llm_manager.get_active_config("big", db)
+        
+        if config:
+            logger.info(f"[MemoryManager] Using DB LLM config: {config.name}")
+            return {
+                "provider": "openai",
+                "config": {
+                    "model": config.model_name,
+                    "openai_api_key": config.api_key,
+                    "openai_api_base": config.base_url,
+                    "temperature": config.temperature,
+                    "max_tokens": config.max_tokens or 2000,
+                    **config.extra_params
+                }
+            }
+        
+        # Fallback到环境变量
+        logger.warning("[MemoryManager] LLM config not found in DB, using fallback")
+        return self._get_fallback_llm_config()
+    
+    def _get_embedding_config(self, db: Session) -> dict:
+        """
+        从数据库获取Embedding配置（embedding角色）
+        
+        Args:
+            db: 数据库会话
+            
+        Returns:
+            Mem0 Embedding配置字典
+        """
+        llm_manager = get_llm_manager()
+        config = llm_manager.get_active_config("embedding", db)
+        
+        if config:
+            logger.info(f"[MemoryManager] Using DB Embedding config: {config.name}")
+            return {
+                "provider": "openai",
+                "config": {
+                    "model": config.model_name,
+                    "api_key": config.api_key,
+                    "openai_base_url": config.base_url,
+                    "embedding_dims": config.extra_params.get("embedding_dims", 1024),
+                }
+            }
+        
+        # Fallback到环境变量
+        logger.warning("[MemoryManager] Embedding config not found in DB, using fallback")
+        return self._get_fallback_embedding_config()
+    
+    def _get_fallback_llm_config(self) -> dict:
+        """获取fallback LLM配置（从环境变量）"""
+        return {
+            "provider": "openai",
+            "config": {
+                "model": "glm-5",
+                "openai_api_key": settings.ZHIPUAI_API_KEY,
+                "openai_api_base": settings.ZHIPUAI_API_BASE,
+                "temperature": 0,
+            },
+        }
+    
+    def _get_fallback_embedding_config(self) -> dict:
+        """获取fallback Embedding配置（从环境变量）"""
+        return {
+            "provider": "openai",
+            "config": {
+                "model": "Qwen3-Embedding-0.6B",
+                "api_key": "dummy-key",
+                "openai_base_url": "http://192.168.110.44:8008/v1",
+                "embedding_dims": 1024,
+            },
+        }
+    
+    def reinit(self, db: Session):
+        """
+        重新初始化mem0客户端（配置变更时调用）
+        
+        Args:
+            db: 数据库会话
+        """
+        self._memory_client = None
+        self.init(db)
+        logger.info("[MemoryManager] Reinitialized with new config")
     
     def _extract_user_id(self, state: dict) -> str:
         """从 state 中提取 user_id"""
@@ -387,6 +486,34 @@ def get_memory_manager() -> MemoryManager:
 ```
 
 ### 4.2 关键方法说明
+
+**init(db: Session)**: 初始化mem0客户端
+- 输入: 数据库会话
+- 行为: 
+  1. 从数据库获取`big`角色的LLM配置
+  2. 从数据库获取`embedding`角色的Embedding配置
+  3. 构建mem0配置并初始化客户端
+  4. 如果数据库配置不存在，自动fallback到环境变量
+
+**_get_llm_config(db: Session)**: 获取LLM配置
+- 输入: 数据库会话
+- 输出: Mem0 LLM配置字典
+- 逻辑: 
+  1. 调用LLMManager获取`big`角色的激活配置
+  2. 转换为Mem0格式
+  3. 失败时返回fallback配置
+
+**_get_embedding_config(db: Session)**: 获取Embedding配置
+- 输入: 数据库会话
+- 输出: Mem0 Embedding配置字典
+- 逻辑: 
+  1. 调用LLMManager获取`embedding`角色的激活配置
+  2. 转换为Mem0格式
+  3. 失败时返回fallback配置
+
+**reinit(db: Session)**: 重新初始化
+- 用途: 配置变更后重新加载
+- 调用时机: LLM或Embedding配置激活时
 
 **_extract_user_id**: 从工具的 state 中提取用户ID
 - 输入: InjectedState 注入的 state 字典
@@ -507,16 +634,20 @@ DEFAULT_SYSTEM_PROMPT = f"""
 ### 6.1 修改文件清单
 
 #### src/config.py
-添加 Mem0 配置项
+添加 Qdrant 向量数据库配置（仅此部分使用环境变量）
 
 #### src/memory_manager.py（新增）
-实现 MemoryManager 类
+实现 MemoryManager 类，从数据库获取模型配置
 
 #### src/agent_manager.py
-1. 导入 MemoryManager
+1. 导入 MemoryManager 和 SessionLocal
 2. 在 `__init__` 中初始化 MemoryManager
-3. 在 `_build_agent` 中添加记忆工具
-4. 更新 DEFAULT_SYSTEM_PROMPT
+3. 在 `init` 方法中调用 `memory_manager.init(db)`
+4. 在 `_build_agent` 中添加记忆工具
+5. 更新 DEFAULT_SYSTEM_PROMPT
+
+#### src/database.py
+无需修改（复用现有的 LlmConfig 表）
 
 ### 6.2 集成代码示例
 
@@ -524,6 +655,7 @@ DEFAULT_SYSTEM_PROMPT = f"""
 # src/agent_manager.py
 
 from src.memory_manager import get_memory_manager
+from src.database import SessionLocal
 
 class AgentManager:
     def __init__(self):
@@ -533,8 +665,9 @@ class AgentManager:
     async def init(self):
         # ... 现有代码 ...
         
-        # 初始化记忆管理器
-        self.memory_manager.init()
+        # 初始化记忆管理器（传入db session获取配置）
+        with SessionLocal() as db:
+            self.memory_manager.init(db)
         
         await self._build_agent()
     
@@ -561,7 +694,7 @@ class AgentManager:
 
 ## 七、配置设计
 
-### 7.1 config.py 添加
+### 7.1 config.py 添加（仅Qdrant配置）
 
 ```python
 # src/config.py
@@ -569,36 +702,83 @@ class AgentManager:
 class Settings(BaseSettings):
     # ... 现有配置 ...
     
-    # Mem0 配置
+    # Mem0 Qdrant 向量数据库配置
     MEM0_COLLECTION_NAME: str = "multi_agent_memory"
     MEM0_QDRANT_HOST: str = "localhost"
     MEM0_QDRANT_PORT: int = 6333
-    MEM0_EMBEDDING_DIMS: int = 1024
-    
-    # Mem0 LLM 配置（复用现有 LLM）
-    MEM0_LLM_MODEL: str = "glm-5"
-    
-    # Mem0 Embedding 配置
-    MEM0_EMBEDDING_MODEL: str = "Qwen3-Embedding-0.6B"
-    MEM0_EMBEDDING_API_KEY: str = "dummy-key"
-    MEM0_EMBEDDING_BASE_URL: str = "http://192.168.110.44:8008/v1"
 ```
+
+**说明**：
+- Qdrant配置使用环境变量（基础设施配置）
+- LLM和Embedding配置从数据库获取（动态可配置）
 
 ### 7.2 .env 文件添加
 
 ```bash
-# Mem0 配置
+# Mem0 Qdrant 配置
 MEM0_COLLECTION_NAME=multi_agent_memory
 MEM0_QDRANT_HOST=localhost
 MEM0_QDRANT_PORT=6333
-MEM0_EMBEDDING_DIMS=1024
-
-MEM0_LLM_MODEL=glm-5
-
-MEM0_EMBEDDING_MODEL=Qwen3-Embedding-0.6B
-MEM0_EMBEDDING_API_KEY=dummy-key
-MEM0_EMBEDDING_BASE_URL=http://192.168.110.44:8008/v1
 ```
+
+### 7.3 数据库初始化 Embedding 配置
+
+在部署时需要初始化一条 `role="embedding"` 的配置记录：
+
+**方式1：通过管理界面（推荐）**
+
+前端调用 `/api/admin/llm/configs` 接口创建配置，详见《前端对接文档》。
+
+**方式2：通过初始化脚本**
+
+```python
+# scripts/init_embedding_config.py
+
+from src.database import SessionLocal
+from src.llm_manager import get_llm_manager
+
+def init_embedding_config():
+    llm_manager = get_llm_manager()
+    
+    with SessionLocal() as db:
+        config = llm_manager.create_config(
+            db=db,
+            name="qwen3-embedding-0.6b",
+            provider="openai",
+            base_url="http://192.168.110.44:8008/v1",
+            api_key="dummy-key",
+            model_name="Qwen3-Embedding-0.6B",
+            role="embedding",  # 关键：指定角色为embedding
+            display_name="Qwen3 Embedding 0.6B",
+            description="Embedding模型用于向量化文本",
+            temperature=0,  # embedding通常temperature=0
+            max_tokens=512,
+            extra_params={"embedding_dims": 1024},  # 向量维度
+            activate=True  # 激活此配置
+        )
+        
+        print(f"Created embedding config: {config.id}")
+
+if __name__ == "__main__":
+    init_embedding_config()
+```
+
+### 7.4 配置说明
+
+**LlmConfig表复用**：
+- `role="big"`: 主模型（Agent推理、Mem0 LLM）
+- `role="flash"`: 快速模型（快速响应）
+- `role="embedding"`: Embedding模型（Mem0向量化）
+
+**extra_params 字段**：
+- `embedding_dims`: 向量维度（必需，用于Qdrant配置）
+- 其他自定义参数
+
+**切换配置流程**：
+1. 创建新的embedding配置
+2. 调用激活接口 `/api/admin/llm/configs/{config_id}/activate`
+3. 后端自动重新初始化MemoryManager
+4. 新配置立即生效
 
 ## 八、实施计划
 
@@ -608,14 +788,17 @@ MEM0_EMBEDDING_BASE_URL=http://192.168.110.44:8008/v1
 
 **任务**：
 1. 创建 `src/memory_manager.py`
-2. 在 `config.py` 中添加 Mem0 配置
-3. 在 `agent_manager.py` 中集成记忆工具
-4. 编写基础测试 `tests/test_memory_integration.py`
+2. 在 `config.py` 中添加 Qdrant 配置
+3. 初始化数据库 Embedding 配置（`role="embedding"`）
+4. 在 `agent_manager.py` 中集成记忆工具
+5. 在 `api/admin.py` 中添加配置热更新逻辑
+6. 编写基础测试 `tests/test_memory_integration.py`
 
 **验证标准**：
 - Agent 可以调用 save_memory 保存信息
 - Agent 可以调用 search_memory 检索信息
-- 短期记忆和长期记忆隔离正确
+- 配置从数据库正确加载
+- 切换配置后MemoryManager自动重初始化
 - 检索结果按相关性排序
 
 ### Phase 2: Prompt 优化（1 天）
@@ -692,6 +875,86 @@ def save_memory(
 - 中断恢复由checkpointer自动处理
 - 无需Mem0参与会话级记忆
 
+### 9.5 配置动态获取
+
+**问题**：如何动态管理LLM和Embedding配置？
+
+**解决方案**：
+1. **统一管理**：复用LlmConfig表，添加`role="embedding"`
+2. **动态获取**：MemoryManager初始化时从数据库读取配置
+3. **自动fallback**：数据库配置不存在时使用环境变量
+4. **缓存机制**：LLMManager内部缓存，避免频繁查询数据库
+
+**实现细节**：
+```python
+# 从数据库获取配置
+llm_config = llm_manager.get_active_config("big", db)
+embedding_config = llm_manager.get_active_config("embedding", db)
+
+# 转换为Mem0格式
+mem0_config = {
+    "llm": {
+        "provider": "openai",
+        "config": {
+            "model": llm_config.model_name,
+            "openai_api_key": llm_config.api_key,
+            "openai_api_base": llm_config.base_url,
+            "temperature": llm_config.temperature,
+            **llm_config.extra_params
+        }
+    },
+    "embedder": {
+        "provider": "openai",
+        "config": {
+            "model": embedding_config.model_name,
+            "api_key": embedding_config.api_key,
+            "openai_base_url": embedding_config.base_url,
+            "embedding_dims": embedding_config.extra_params.get("embedding_dims", 1024),
+        }
+    }
+}
+```
+
+### 9.6 配置热更新
+
+**问题**：如何在不重启服务的情况下切换模型？
+
+**解决方案**：
+1. **激活配置API**：`POST /api/admin/llm/configs/{config_id}/activate`
+2. **自动重初始化**：激活big或embedding角色时自动调用`memory_manager.reinit()`
+3. **缓存失效**：LLMManager自动清除缓存
+
+**实现代码**：
+```python
+# api/admin.py
+
+@router.post("/llm/configs/{config_id}/activate")
+def activate_llm_config(config_id: str, db: Session = Depends(get_db)):
+    llm_manager = get_llm_manager()
+    config = llm_manager.activate_config(config_id, db)
+    
+    if not config:
+        raise HTTPException(status_code=404, detail="Config not found")
+    
+    # 如果是big或embedding角色，重新初始化MemoryManager
+    if config.role in ["big", "embedding"]:
+        from src.memory_manager import get_memory_manager
+        from src.database import SessionLocal
+        
+        memory_manager = get_memory_manager()
+        with SessionLocal() as db:
+            memory_manager.reinit(db)
+        
+        logger.info(f"[Admin] MemoryManager reinitialized due to {config.role} config change")
+    
+    return {"message": "Config activated", "config_id": config_id}
+```
+
+**注意事项**：
+- 重新初始化会重建mem0客户端，内存中的缓存会清空
+- 已保存的向量数据不会丢失（存储在Qdrant中）
+- 正在进行的会话不受影响（使用的是已初始化的客户端实例）
+
 ## 十、测试计划
 
 ### 10.1 单元测试
@@ -766,7 +1029,72 @@ logger.exception(f"[MemoryManager] Failed to save memory: {e}")
    - 记忆操作延迟
    - 向量检索延迟
 
-## 十二、参考资料
+## 十二、架构变更总结
+
+### 12.1 核心变更
+
+**配置管理变更**：
+- ❌ 删除：环境变量硬编码 LLM/Embedding 配置
+- ✅ 新增：从数据库 `LlmConfig` 表动态获取配置
+- ✅ 新增：支持 `role="embedding"` 的配置管理
+- ✅ 新增：配置热更新机制（无需重启服务）
+
+**MemoryManager 初始化变更**：
+- `init()` → `init(db: Session)` （需要数据库会话）
+- 新增 `_get_llm_config()` 从数据库获取 LLM 配置
+- 新增 `_get_embedding_config()` 从数据库获取 Embedding 配置
+- 新增 `reinit(db)` 支持配置热更新
+
+**AgentManager 集成变更**：
+```python
+# 旧版本
+self.memory_manager.init()
+
+# 新版本
+with SessionLocal() as db:
+    self.memory_manager.init(db)
+```
+
+**配置激活变更**：
+- 激活 `big` 或 `embedding` 角色配置时自动重新初始化 MemoryManager
+- 添加在 `api/admin.py` 的 `activate_llm_config` 接口中
+
+### 12.2 优势
+
+✅ **统一管理**：所有模型配置（big/flash/embedding）在一个表中管理  
+✅ **动态切换**：支持不重启服务切换 Embedding 模型  
+✅ **配置复用**：复用现有的 LLMManager 和管理界面  
+✅ **Fallback机制**：数据库配置失败时自动 fallback 到环境变量  
+✅ **易于扩展**：未来可轻松添加更多角色（如 vision/audio）  
+✅ **会话记忆**：LangGraph 自动管理，无需开发
+
+### 12.3 前端配合
+
+**前端需要做的事**：
+1. 复用现有 LLM 配置管理界面
+2. 添加 `role="embedding"` 的筛选和创建
+3. 在 `extra_params` 中添加 `embedding_dims` 字段
+4. 添加首次部署时的 Embedding 配置初始化引导
+
+**详细说明**：见 [前端对接文档](./frontend-integration.md)
+
+### 12.4 部署检查清单
+
+**后端部署**：
+- [ ] 添加 Qdrant 配置到 `.env` 文件
+- [ ] 运行数据库迁移（如需）
+- [ ] 初始化 Embedding 配置（`role="embedding"`）
+- [ ] 测试记忆保存和检索功能
+- [ ] 测试配置切换和热更新
+
+**前端部署**：
+- [ ] 更新 LLM 配置管理界面（支持 embedding 角色）
+- [ ] 添加 Embedding 维度字段输入
+- [ ] 添加首次部署引导提示
+- [ ] 测试配置 CRUD 功能
+- [ ] 测试配置激活功能
+
+## 十三、参考资料
 
 - [Mem0 官方文档](https://docs.mem0.ai)
 - [Mem0 GitHub](https://github.com/mem0ai/mem0)
