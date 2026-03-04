@@ -150,6 +150,10 @@ class SessionManager:
                 formatted_msg["in_subagent"] = True
                 formatted_msg["subagent_name"] = subagent_context
 
+            # 过滤非子代理的工具消息（在更新 subagent_context 之前）
+            if role == "tool" and not subagent_context:
+                continue
+
             # ToolMessage 可能表示子代理结束
             if role == "tool" and hasattr(msg, "name") and msg.name == "task":
                 subagent_context = None
