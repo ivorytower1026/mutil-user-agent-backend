@@ -626,3 +626,873 @@ uv add dspy-ai
 # 或
 uv sync
 ```
+
+---
+
+## 5. 测试脚本
+
+### 5.1 测试文件结构
+
+```
+tests/
+└── prompt_optimizer/
+    ├── __init__.py
+    ├── conftest.py              # 测试配置和 fixtures
+    ├── test_signatures.py       # 测试 DSPy Signatures
+    ├── test_metrics.py          # 测试评估指标
+    ├── test_data_extractor.py   # 测试数据提取
+    ├── test_optimizer.py        # 测试优化器核心
+    ├── test_api.py              # 测试 API 端点
+    └── run_all.py               # 运行所有测试
+```
+
+### 5.2 测试用例设计
+
+| 模块 | 测试用例 | 说明 |
+|------|---------|------|
+| **signatures** | test_agent_response_signature | 验证 Signature 定义正确 |
+| **metrics** | test_create_agent_metric | 测试评估指标计算 |
+| **metrics** | test_metric_with_empty_response | 空响应返回 0 分 |
+| **metrics** | test_metric_with_error_markers | 错误标记降低分数 |
+| **metrics** | test_metric_with_good_response | 良好响应返回高分 |
+| **data_extractor** | test_extract_with_no_threads | 没有对话时返回空列表 |
+| **data_extractor** | test_extract_with_min_turns | 最少轮数过滤 |
+| **data_extractor** | test_build_context | 上下文构建 |
+| **optimizer** | test_configure_dspy | DSPy 配置正确 |
+| **optimizer** | test_optimize_with_insufficient_data | 数据不足时返回失败 |
+| **optimizer** | test_optimize_success | 成功优化流程 |
+| **optimizer** | test_save_optimization_history | 保存历史记录 |
+| **api** | test_optimize_endpoint_not_found | agent 不存在返回 404 |
+| **api** | test_optimize_endpoint_insufficient_data | 数据不足返回失败 |
+| **api** | test_preview_endpoint | 预览端点测试 |
+| **api** | test_history_endpoint | 历史端点测试 |
+
+### 5.3 conftest.py - 测试配置
+
+```python
+"""Test configuration and fixtures."""
+
+import pytest
+from unittest.mock import MagicMock, patch
+import os
+
+# 设置测试环境变量
+os.environ.setdefault("ZHIPUAI_API_KEY", "test-api-key")
+os.environ.setdefault("ZHIPUAI_API_BASE", "https://test.api.com")
+os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
+os.environ.setdefault("SECRET_KEY", "test-secret-key")
+
+
+@pytest.fixture
+def mock_db_session():
+    """Mock database session."""
+    session = MagicMock()
+    return session
+
+
+@pytest.fixture
+def mock_thread():
+    """Mock Thread object."""
+    thread = MagicMock()
+    thread.thread_id = "test-user-test-thread-123"
+    thread.message_count = 5
+    thread.updated_at = "2026-03-04T10:00:00"
+    return thread
+
+
+@pytest.fixture
+def sample_training_data():
+    """Sample training data for testing."""
+    return [
+        {
+            "thread_id": f"test-thread-{i}",
+            "user_input": f"用户问题 {i}",
+            "response": f"助手回答 {i}，这是一个详细的响应内容",
+            "context": "",
+        }
+        for i in range(10)
+    ]
+
+
+@pytest.fixture
+def sample_messages():
+    """Sample messages from checkpoint."""
+    return [
+        {"role": "user", "content": "你好"},
+        {"role": "assistant", "content": "你好！有什么可以帮助你的？"},
+        {"role": "user", "content": "帮我写个函数"},
+        {"role": "assistant", "content": "好的，我来帮你写一个函数。请告诉我你需要什么功能？"},
+    ]
+```
+
+### 5.4 test_metrics.py - 评估指标测试
+
+```python
+"""Tests for evaluation metrics."""
+
+import pytest
+from unittest.mock import Mock
+from src.prompt_optimizer.metrics import (
+    create_agent_metric,
+    code_execution_metric,
+    CompositeMetric,
+)
+
+
+class TestCreateAgentMetric:
+    """Tests for create_agent_metric function."""
+    
+    def test_metric_with_empty_response(self):
+        """测试空响应返回 0 分"""
+        metric = create_agent_metric()
+        
+        example = Mock()
+        prediction = Mock()
+        prediction.response = ""
+        
+        score = metric(example, prediction)
+        assert score == 0.0
+    
+    def test_metric_with_no_response_attribute(self):
+        """测试没有 response 属性时返回 0 分"""
+        metric = create_agent_metric()
+        
+        example = Mock()
+        prediction = Mock(spec=[])  # 没有 response 属性
+        
+        score = metric(example, prediction)
+        assert score == 0.0
+    
+    def test_metric_with_short_response(self):
+        """测试过短响应返回低分"""
+        metric = create_agent_metric()
+        
+        example = Mock()
+        prediction = Mock()
+        prediction.response = "ok"  # 少于 10 个字符
+        
+        score = metric(example, prediction)
+        assert score < 0.3
+    
+    def test_metric_with_error_markers(self):
+        """测试错误标记降低分数"""
+        metric = create_agent_metric()
+        
+        example = Mock()
+        prediction = Mock()
+        prediction.response = "Sorry, I failed to complete the task due to an error"
+        
+        score = metric(example, prediction)
+        assert score < 0.5
+    
+    def test_metric_with_good_response(self):
+        """测试良好响应返回高分"""
+        metric = create_agent_metric()
+        
+        example = Mock()
+        example.response = "这是期望的回答内容"
+        
+        prediction = Mock()
+        prediction.response = "这是期望的回答内容，完全符合要求，执行了相应操作"
+        prediction.action_taken = "执行了文件创建操作"
+        
+        score = metric(example, prediction)
+        assert score > 0.5
+    
+    def test_metric_with_matching_expected_response(self):
+        """测试与期望输出匹配时高分"""
+        metric = create_agent_metric()
+        
+        expected = "这是一个关于 Python 编程的回答"
+        
+        example = Mock()
+        example.response = expected
+        
+        prediction = Mock()
+        prediction.response = expected  # 完全匹配
+        prediction.action_taken = "执行操作"
+        
+        score = metric(example, prediction)
+        assert score > 0.7
+
+
+class TestCodeExecutionMetric:
+    """Tests for code_execution_metric function."""
+    
+    def test_metric_with_no_trace(self):
+        """测试没有 trace 时返回中等分数"""
+        example = Mock()
+        prediction = Mock()
+        
+        score = code_execution_metric(example, prediction, trace=None)
+        assert score == 0.5
+    
+    def test_metric_with_successful_execution(self):
+        """测试成功执行返回高分"""
+        example = Mock()
+        prediction = Mock()
+        
+        # 模拟成功执行的 trace
+        trace = [
+            (Mock(), {}, {"result": "execute success"})
+        ]
+        
+        score = code_execution_metric(example, prediction, trace=trace)
+        assert score == 1.0
+    
+    def test_metric_with_created_output(self):
+        """测试创建输出返回高分"""
+        example = Mock()
+        prediction = Mock()
+        
+        trace = [
+            (Mock(), {}, {"result": "file created successfully"})
+        ]
+        
+        score = code_execution_metric(example, prediction, trace=trace)
+        assert score == 0.9
+
+
+class TestCompositeMetric:
+    """Tests for CompositeMetric class."""
+    
+    def test_composite_metric_equal_weights(self):
+        """测试等权重组合指标"""
+        metric1 = lambda e, p, t: 0.8
+        metric2 = lambda e, p, t: 0.6
+        
+        composite = CompositeMetric([metric1, metric2])
+        
+        score = composite(Mock(), Mock(), None)
+        assert score == pytest.approx(0.7, rel=0.01)
+    
+    def test_composite_metric_custom_weights(self):
+        """测试自定义权重组合指标"""
+        metric1 = lambda e, p, t: 1.0
+        metric2 = lambda e, p, t: 0.0
+        
+        composite = CompositeMetric([metric1, metric2], weights=[0.8, 0.2])
+        
+        score = composite(Mock(), Mock(), None)
+        assert score == pytest.approx(0.8, rel=0.01)
+```
+
+### 5.5 test_data_extractor.py - 数据提取测试
+
+```python
+"""Tests for TrainingDataExtractor."""
+
+import pytest
+from unittest.mock import Mock, patch, MagicMock
+from src.prompt_optimizer.data_extractor import TrainingDataExtractor
+
+
+class TestTrainingDataExtractor:
+    """Tests for TrainingDataExtractor class."""
+    
+    def test_extract_with_no_threads(self, mock_db_session):
+        """测试没有对话时返回空列表"""
+        with patch("src.prompt_optimizer.data_extractor.SessionLocal") as mock_session:
+            mock_session.return_value.__enter__.return_value = mock_db_session
+            mock_db_session.query.return_value.filter.return_value.order_by.return_value.limit.return_value.all.return_value = []
+            
+            extractor = TrainingDataExtractor()
+            result = extractor.extract_successful_threads(limit=10)
+            
+            assert result == []
+    
+    def test_extract_with_threads(self, mock_db_session, mock_thread, sample_messages):
+        """测试提取成功对话"""
+        with patch("src.prompt_optimizer.data_extractor.SessionLocal") as mock_session:
+            mock_session.return_value.__enter__.return_value = mock_db_session
+            mock_db_session.query.return_value.filter.return_value.order_by.return_value.limit.return_value.all.return_value = [mock_thread]
+            
+            extractor = TrainingDataExtractor()
+            
+            # Mock _extract_messages_from_checkpoint
+            with patch.object(extractor, "_extract_messages_from_checkpoint", return_value=sample_messages):
+                result = extractor.extract_successful_threads(limit=10)
+            
+            assert len(result) > 0
+            assert "user_input" in result[0]
+            assert "response" in result[0]
+    
+    def test_extract_with_min_turns_filter(self, mock_db_session):
+        """测试最少轮数过滤"""
+        with patch("src.prompt_optimizer.data_extractor.SessionLocal") as mock_session:
+            mock_session.return_value.__enter__.return_value = mock_db_session
+            
+            # 创建一个 message_count 较少的 thread
+            low_count_thread = MagicMock()
+            low_count_thread.thread_id = "test-thread-low"
+            low_count_thread.message_count = 1  # 少于 min_turns
+            
+            mock_db_session.query.return_value.filter.return_value.order_by.return_value.limit.return_value.all.return_value = []
+            
+            extractor = TrainingDataExtractor()
+            result = extractor.extract_successful_threads(limit=10, min_turns=2)
+            
+            # 验证 filter 被调用
+            mock_db_session.query.return_value.filter.assert_called_once()
+    
+    def test_build_context_empty(self):
+        """测试空消息列表的上下文构建"""
+        extractor = TrainingDataExtractor()
+        
+        context = extractor._build_context([])
+        
+        assert context == ""
+    
+    def test_build_context_with_messages(self, sample_messages):
+        """测试有消息时的上下文构建"""
+        extractor = TrainingDataExtractor()
+        
+        context = extractor._build_context(sample_messages[:2])
+        
+        assert "user: 你好" in context
+        assert "assistant: 你好" in context
+    
+    def test_build_context_limits_length(self):
+        """测试上下文长度限制"""
+        extractor = TrainingDataExtractor()
+        
+        # 创建超过 4 条消息
+        long_messages = [
+            {"role": "user", "content": f"消息 {i}"}
+            for i in range(10)
+        ]
+        
+        context = extractor._build_context(long_messages)
+        
+        # 只取最后 4 条
+        assert "消息 6" in context
+        assert "消息 9" in context
+    
+    def test_extract_messages_from_checkpoint_success(self):
+        """测试从 checkpoint 提取消息成功"""
+        extractor = TrainingDataExtractor()
+        
+        # Mock agent_manager
+        mock_state = {
+            "messages": [
+                Mock(type="user", content="用户消息"),
+                Mock(type="assistant", content="助手消息"),
+            ]
+        }
+        
+        with patch("src.prompt_optimizer.data_extractor.agent_manager") as mock_am:
+            mock_am.checkpointer.get.return_value = mock_state
+            
+            result = extractor._extract_messages_from_checkpoint("test-thread-id")
+            
+            assert len(result) == 2
+            assert result[0]["role"] == "user"
+            assert result[1]["role"] == "assistant"
+    
+    def test_extract_messages_from_checkpoint_failure(self):
+        """测试从 checkpoint 提取消息失败"""
+        extractor = TrainingDataExtractor()
+        
+        with patch("src.prompt_optimizer.data_extractor.agent_manager") as mock_am:
+            mock_am.checkpointer.get.side_effect = Exception("Test error")
+            
+            result = extractor._extract_messages_from_checkpoint("test-thread-id")
+            
+            assert result == []
+    
+    def test_extract_for_agent(self, mock_db_session):
+        """测试为特定 agent 提取数据"""
+        with patch("src.prompt_optimizer.data_extractor.SessionLocal") as mock_session:
+            mock_session.return_value.__enter__.return_value = mock_db_session
+            mock_db_session.query.return_value.filter.return_value.order_by.return_value.limit.return_value.all.return_value = []
+            
+            extractor = TrainingDataExtractor()
+            result = extractor.extract_for_agent(agent_name="main", limit=50)
+            
+            # 当前实现应该返回空列表
+            assert isinstance(result, list)
+```
+
+### 5.6 test_optimizer.py - 优化器测试
+
+```python
+"""Tests for PromptOptimizer."""
+
+import pytest
+from unittest.mock import Mock, patch, MagicMock
+from src.prompt_optimizer.optimizer import PromptOptimizer
+
+
+class TestPromptOptimizer:
+    """Tests for PromptOptimizer class."""
+    
+    def test_init_configures_dspy(self):
+        """测试初始化时配置 DSPy"""
+        with patch("src.prompt_optimizer.optimizer.dspy") as mock_dspy:
+            with patch("src.prompt_optimizer.optimizer.settings") as mock_settings:
+                mock_settings.ZHIPUAI_API_KEY = "test-key"
+                mock_settings.ZHIPUAI_API_BASE = "https://test.api.com"
+                
+                optimizer = PromptOptimizer()
+                
+                mock_dspy.configure.assert_called_once()
+                mock_dspy.LM.assert_called_once()
+    
+    def test_optimize_with_insufficient_data(self):
+        """测试数据不足时返回失败"""
+        with patch("src.prompt_optimizer.optimizer.dspy"):
+            with patch("src.prompt_optimizer.optimizer.settings"):
+                optimizer = PromptOptimizer()
+                
+                result = optimizer.optimize(
+                    current_prompt="Test prompt",
+                    training_examples=[
+                        {"user_input": "test", "response": "test"}
+                    ],  # 只有 1 条数据
+                )
+                
+                assert result["success"] is False
+                assert "训练数据不足" in result["error"]
+                assert result["score"] == 0.0
+    
+    def test_optimize_with_valid_data(self, sample_training_data):
+        """测试有足够数据时的优化流程"""
+        with patch("src.prompt_optimizer.optimizer.dspy") as mock_dspy:
+            with patch("src.prompt_optimizer.optimizer.settings"):
+                with patch("src.prompt_optimizer.optimizer.create_agent_metric") as mock_metric:
+                    # 配置 mock
+                    mock_metric.return_value = lambda e, p, t: 0.8
+                    
+                    mock_optimizer = MagicMock()
+                    mock_optimized_program = MagicMock()
+                    mock_optimized_program.predict.demos = []
+                    mock_optimizer.compile.return_value = mock_optimized_program
+                    
+                    mock_dspy.BootstrapFewShot.return_value = mock_optimizer
+                    
+                    # Mock Evaluate
+                    with patch("src.prompt_optimizer.optimizer.Evaluate") as mock_evaluate:
+                        mock_evaluator = MagicMock()
+                        mock_evaluator.return_value = 0.85
+                        mock_evaluate.return_value = mock_evaluator
+                        
+                        optimizer = PromptOptimizer()
+                        result = optimizer.optimize(
+                            current_prompt="你是一个 AI 助手",
+                            training_examples=sample_training_data,
+                            max_bootstrapped_demos=2,
+                        )
+                        
+                        # 验证调用
+                        mock_dspy.BootstrapFewShot.assert_called_once()
+                        mock_optimizer.compile.assert_called_once()
+    
+    def test_optimize_handles_exception(self, sample_training_data):
+        """测试优化过程异常处理"""
+        with patch("src.prompt_optimizer.optimizer.dspy") as mock_dspy:
+            with patch("src.prompt_optimizer.optimizer.settings"):
+                with patch("src.prompt_optimizer.optimizer.create_agent_metric"):
+                    mock_dspy.BootstrapFewShot.side_effect = Exception("Test error")
+                    
+                    optimizer = PromptOptimizer()
+                    result = optimizer.optimize(
+                        current_prompt="Test prompt",
+                        training_examples=sample_training_data,
+                    )
+                    
+                    assert result["success"] is False
+                    assert "Test error" in result["error"]
+    
+    def test_save_optimization_history(self):
+        """测试保存优化历史"""
+        with patch("src.prompt_optimizer.optimizer.dspy"):
+            with patch("src.prompt_optimizer.optimizer.settings"):
+                with patch("src.prompt_optimizer.optimizer.SessionLocal") as mock_session:
+                    mock_db = MagicMock()
+                    mock_session.return_value.__enter__.return_value = mock_db
+                    
+                    optimizer = PromptOptimizer()
+                    history_id = optimizer.save_optimization_history(
+                        agent_name="main",
+                        result={
+                            "success": True,
+                            "demo_count": 4,
+                            "score": 0.85,
+                            "demos": [],
+                        },
+                        config={
+                            "max_bootstrapped_demos": 4,
+                            "metric_threshold": 0.6,
+                        },
+                    )
+                    
+                    assert history_id is not None
+                    assert len(history_id) == 36  # UUID 格式
+                    mock_db.add.assert_called_once()
+                    mock_db.commit.assert_called_once()
+    
+    def test_apply_optimization_success(self):
+        """测试应用优化成功"""
+        with patch("src.prompt_optimizer.optimizer.dspy"):
+            with patch("src.prompt_optimizer.optimizer.settings"):
+                with patch("src.prompt_optimizer.optimizer.SessionLocal") as mock_session:
+                    mock_db = MagicMock()
+                    mock_session.return_value.__enter__.return_value = mock_db
+                    
+                    # Mock 历史记录
+                    mock_history = MagicMock()
+                    mock_history.id = "test-history-id"
+                    mock_db.query.return_value.filter.return_value.first.return_value = mock_history
+                    
+                    # Mock agent config
+                    with patch("src.prompt_optimizer.optimizer.get_agent_config_manager") as mock_cm:
+                        mock_config = MagicMock()
+                        mock_cm.return_value.get_config.return_value = mock_config
+                        
+                        optimizer = PromptOptimizer()
+                        result = optimizer.apply_optimization(
+                            agent_name="main",
+                            history_id="test-history-id",
+                        )
+                        
+                        assert result is True
+                        assert mock_history.is_applied is True
+    
+    def test_apply_optimization_history_not_found(self):
+        """测试应用优化时历史记录不存在"""
+        with patch("src.prompt_optimizer.optimizer.dspy"):
+            with patch("src.prompt_optimizer.optimizer.settings"):
+                with patch("src.prompt_optimizer.optimizer.SessionLocal") as mock_session:
+                    mock_db = MagicMock()
+                    mock_session.return_value.__enter__.return_value = mock_db
+                    mock_db.query.return_value.filter.return_value.first.return_value = None
+                    
+                    optimizer = PromptOptimizer()
+                    result = optimizer.apply_optimization(
+                        agent_name="main",
+                        history_id="nonexistent-id",
+                    )
+                    
+                    assert result is False
+    
+    def test_get_optimization_history(self):
+        """测试获取优化历史"""
+        with patch("src.prompt_optimizer.optimizer.dspy"):
+            with patch("src.prompt_optimizer.optimizer.settings"):
+                with patch("src.prompt_optimizer.optimizer.SessionLocal") as mock_session:
+                    mock_db = MagicMock()
+                    mock_session.return_value.__enter__.return_value = mock_db
+                    
+                    # Mock 历史记录列表
+                    mock_history = MagicMock()
+                    mock_history.id = "test-id"
+                    mock_history.agent_name = "main"
+                    mock_history.optimizer_type = "bootstrap"
+                    mock_history.demo_count = 4
+                    mock_history.score = 0.85
+                    mock_history.is_applied = False
+                    mock_history.applied_at = None
+                    mock_history.created_at = MagicMock()
+                    mock_history.created_at.isoformat.return_value = "2026-03-04T10:00:00"
+                    
+                    mock_db.query.return_value.filter.return_value.order_by.return_value.limit.return_value.all.return_value = [mock_history]
+                    
+                    optimizer = PromptOptimizer()
+                    result = optimizer.get_optimization_history(agent_name="main")
+                    
+                    assert len(result) == 1
+                    assert result[0]["id"] == "test-id"
+                    assert result[0]["agent_name"] == "main"
+```
+
+### 5.7 test_api.py - API 端点测试
+
+```python
+"""Tests for API endpoints."""
+
+import pytest
+from fastapi.testclient import TestClient
+from unittest.mock import patch, MagicMock
+
+
+class TestPromptOptimizerAPI:
+    """Tests for Prompt Optimizer API endpoints."""
+    
+    @pytest.fixture
+    def client(self):
+        """Create test client."""
+        from main import app
+        return TestClient(app)
+    
+    def test_optimize_endpoint_agent_not_found(self, client):
+        """测试 agent 不存在时返回 404"""
+        with patch("api.prompt_optimizer.get_agent_config_manager") as mock:
+            mock_manager = MagicMock()
+            mock_manager.get_config.return_value = None
+            mock.return_value = mock_manager
+            
+            response = client.post(
+                "/api/prompt-optimizer/optimize",
+                json={"agent_name": "nonexistent"}
+            )
+            
+            assert response.status_code == 404
+    
+    def test_optimize_endpoint_insufficient_data(self, client):
+        """测试数据不足时返回失败响应"""
+        with patch("api.prompt_optimizer.get_agent_config_manager") as mock_config:
+            mock_manager = MagicMock()
+            mock_config.return_value = mock_manager
+            mock_manager.get_config.return_value = MagicMock(system_prompt="test prompt")
+            
+            with patch("api.prompt_optimizer.TrainingDataExtractor") as mock_extractor:
+                mock_instance = MagicMock()
+                mock_extractor.return_value = mock_instance
+                mock_instance.extract_for_agent.return_value = [
+                    {"user_input": "test", "response": "test"}
+                ]
+                
+                response = client.post(
+                    "/api/prompt-optimizer/optimize",
+                    json={"agent_name": "main", "sample_size": 50}
+                )
+                
+                assert response.status_code == 200
+                data = response.json()
+                assert data["success"] is False
+                assert "训练数据不足" in data["message"]
+    
+    def test_optimize_endpoint_success(self, client, sample_training_data):
+        """测试成功优化"""
+        with patch("api.prompt_optimizer.get_agent_config_manager") as mock_config:
+            mock_manager = MagicMock()
+            mock_config.return_value = mock_manager
+            mock_manager.get_config.return_value = MagicMock(system_prompt="test prompt")
+            
+            with patch("api.prompt_optimizer.TrainingDataExtractor") as mock_extractor:
+                mock_extractor.return_value.extract_for_agent.return_value = sample_training_data
+                
+                with patch("api.prompt_optimizer.PromptOptimizer") as mock_optimizer:
+                    mock_instance = MagicMock()
+                    mock_optimizer.return_value = mock_instance
+                    mock_instance.optimize.return_value = {
+                        "success": True,
+                        "demo_count": 4,
+                        "score": 0.85,
+                        "demos": [],
+                    }
+                    mock_instance.save_optimization_history.return_value = "test-history-id"
+                    
+                    response = client.post(
+                        "/api/prompt-optimizer/optimize",
+                        json={"agent_name": "main"}
+                    )
+                    
+                    assert response.status_code == 200
+                    data = response.json()
+                    assert data["success"] is True
+                    assert data["history_id"] == "test-history-id"
+    
+    def test_preview_endpoint(self, client, sample_training_data):
+        """测试预览端点"""
+        with patch("api.prompt_optimizer.TrainingDataExtractor") as mock_extractor:
+            mock_instance = MagicMock()
+            mock_extractor.return_value = mock_instance
+            mock_instance.extract_for_agent.return_value = sample_training_data[:5]
+            
+            response = client.get("/api/prompt-optimizer/preview/main?limit=5")
+            
+            assert response.status_code == 200
+            data = response.json()
+            assert data["agent_name"] == "main"
+            assert data["sample_count"] == 5
+    
+    def test_history_endpoint(self, client):
+        """测试历史端点"""
+        mock_history = [
+            {
+                "id": "test-id",
+                "agent_name": "main",
+                "optimizer_type": "bootstrap",
+                "demo_count": 4,
+                "score": 0.85,
+                "is_applied": False,
+                "applied_at": None,
+                "created_at": "2026-03-04T10:00:00",
+            }
+        ]
+        
+        with patch("api.prompt_optimizer.PromptOptimizer") as mock_optimizer:
+            mock_instance = MagicMock()
+            mock_optimizer.return_value = mock_instance
+            mock_instance.get_optimization_history.return_value = mock_history
+            
+            response = client.get("/api/prompt-optimizer/history/main")
+            
+            assert response.status_code == 200
+            data = response.json()
+            assert data["total"] == 1
+            assert data["history"][0]["id"] == "test-id"
+    
+    def test_apply_endpoint_success(self, client):
+        """测试应用优化端点"""
+        with patch("api.prompt_optimizer.SessionLocal") as mock_session:
+            mock_db = MagicMock()
+            mock_session.return_value.__enter__.return_value = mock_db
+            
+            mock_history = MagicMock()
+            mock_history.agent_name = "main"
+            mock_history.is_applied = False
+            mock_db.query.return_value.filter.return_value.first.return_value = mock_history
+            
+            with patch("api.prompt_optimizer.PromptOptimizer") as mock_optimizer:
+                mock_instance = MagicMock()
+                mock_optimizer.return_value = mock_instance
+                mock_instance.apply_optimization.return_value = True
+                
+                response = client.post("/api/prompt-optimizer/apply/test-history-id")
+                
+                assert response.status_code == 200
+                data = response.json()
+                assert data["success"] is True
+    
+    def test_apply_endpoint_already_applied(self, client):
+        """测试已应用的优化"""
+        with patch("api.prompt_optimizer.SessionLocal") as mock_session:
+            mock_db = MagicMock()
+            mock_session.return_value.__enter__.return_value = mock_db
+            
+            mock_history = MagicMock()
+            mock_history.agent_name = "main"
+            mock_history.is_applied = True
+            mock_history.applied_at = MagicMock()
+            mock_history.applied_at.isoformat.return_value = "2026-03-04T10:00:00"
+            mock_db.query.return_value.filter.return_value.first.return_value = mock_history
+            
+            response = client.post("/api/prompt-optimizer/apply/test-history-id")
+            
+            assert response.status_code == 200
+            data = response.json()
+            assert "already applied" in data["message"].lower()
+    
+    def test_apply_endpoint_not_found(self, client):
+        """测试应用不存在的优化"""
+        with patch("api.prompt_optimizer.SessionLocal") as mock_session:
+            mock_db = MagicMock()
+            mock_session.return_value.__enter__.return_value = mock_db
+            mock_db.query.return_value.filter.return_value.first.return_value = None
+            
+            response = client.post("/api/prompt-optimizer/apply/nonexistent-id")
+            
+            assert response.status_code == 404
+    
+    def test_delete_endpoint_success(self, client):
+        """测试删除优化历史"""
+        with patch("api.prompt_optimizer.SessionLocal") as mock_session:
+            mock_db = MagicMock()
+            mock_session.return_value.__enter__.return_value = mock_db
+            
+            mock_history = MagicMock()
+            mock_history.is_applied = False
+            mock_db.query.return_value.filter.return_value.first.return_value = mock_history
+            
+            response = client.delete("/api/prompt-optimizer/history/test-id")
+            
+            assert response.status_code == 200
+            mock_db.delete.assert_called_once()
+            mock_db.commit.assert_called_once()
+    
+    def test_delete_endpoint_applied_optimization(self, client):
+        """测试删除已应用的优化"""
+        with patch("api.prompt_optimizer.SessionLocal") as mock_session:
+            mock_db = MagicMock()
+            mock_session.return_value.__enter__.return_value = mock_db
+            
+            mock_history = MagicMock()
+            mock_history.is_applied = True
+            mock_db.query.return_value.filter.return_value.first.return_value = mock_history
+            
+            response = client.delete("/api/prompt-optimizer/history/test-id")
+            
+            assert response.status_code == 400
+```
+
+### 5.8 run_all.py - 测试运行脚本
+
+```python
+"""
+运行所有 prompt optimizer 测试
+
+使用方法:
+    uv run python tests/prompt_optimizer/run_all.py
+"""
+
+import sys
+import os
+
+# 添加项目根目录到 path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+
+
+def run_all_tests():
+    """运行所有测试"""
+    import pytest
+    
+    test_dir = os.path.dirname(__file__)
+    
+    print("=" * 60)
+    print("Running Prompt Optimizer Tests")
+    print("=" * 60)
+    print()
+    
+    # 运行测试
+    exit_code = pytest.main([
+        test_dir,
+        "-v",
+        "--tb=short",
+        "-x",  # 遇到第一个失败就停止
+        "--color=yes",
+    ])
+    
+    print()
+    if exit_code == 0:
+        print("=" * 60)
+        print("All tests passed!")
+        print("=" * 60)
+    else:
+        print("=" * 60)
+        print("Some tests failed!")
+        print("=" * 60)
+    
+    return exit_code
+
+
+if __name__ == "__main__":
+    sys.exit(run_all_tests())
+```
+
+### 5.9 运行测试
+
+```bash
+# 运行所有测试
+uv run python tests/prompt_optimizer/run_all.py
+
+# 运行单个测试文件
+uv run pytest tests/prompt_optimizer/test_metrics.py -v
+
+# 运行特定测试
+uv run pytest tests/prompt_optimizer/test_optimizer.py::TestPromptOptimizer::test_optimize_with_insufficient_data -v
+
+# 带覆盖率报告
+uv run pytest tests/prompt_optimizer/ --cov=src/prompt_optimizer --cov-report=term-missing
+```
+
+### 5.10 测试覆盖率目标
+
+| 模块 | 目标覆盖率 |
+|------|-----------|
+| metrics.py | > 90% |
+| data_extractor.py | > 85% |
+| optimizer.py | > 80% |
+| API endpoints | > 90% |
+| **总体** | **> 85%** |
