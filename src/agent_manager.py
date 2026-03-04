@@ -276,7 +276,7 @@ class AgentManager:
         if files:
             file_list = "\n".join(f"- {path}" for path in files)
             messages.append(SystemMessage(
-                content=f"当前对话中用户已上传的文件：\n{file_list}"
+                content=f"这是用户刚刚上传的文件，后续用户可能会询问你有关这些文件的内容：\n{file_list}"
             ))
 
         if mode == "plan":
