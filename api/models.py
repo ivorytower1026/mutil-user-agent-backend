@@ -42,6 +42,9 @@ class Message(BaseModel):
     role: Literal["user", "assistant", "tool", "system"]
     content: str
     toolCalls: Optional[list[ToolCall]] = None
+    in_subagent: Optional[bool] = None
+    subagent_name: Optional[str] = None
+    is_subagent_call: Optional[bool] = None
 
 
 class HistoryResponse(BaseModel):

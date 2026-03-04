@@ -76,14 +76,17 @@ class SessionManager:
         }
 
     async def get_history(self, thread_id: str) -> dict:
+        from src.utils.get_logger import get_logger
+        logger = get_logger("session")
+        
         config = {"configurable": {"thread_id": thread_id}}
         snapshot = await self.agent.aget_state(config)
         messages = snapshot.values.get("messages", [])
 
         formatted_messages = []
-        subagent_context = None  # 跟踪当前子代理上下文
+        subagent_stack = []
 
-        for msg in messages:
+        for i, msg in enumerate(messages):
             role = "unknown"
             content = ""
 
@@ -109,8 +112,8 @@ class SessionManager:
 
             formatted_msg = {"role": role, "content": content}
 
-            # 检测子代理调用
             if role == "assistant" and hasattr(msg, "tool_calls") and msg.tool_calls:
+                logger.info(f"[get_history] msg {i}: assistant with {len(msg.tool_calls)} tool_calls")
                 tool_calls_data = []
                 for tc in msg.tool_calls:
                     tc_name = (
@@ -123,18 +126,24 @@ class SessionManager:
                         if hasattr(tc, "args")
                         else tc.get("args", {})
                     )
+                    tc_id = (
+                        getattr(tc, "id", "")
+                        if hasattr(tc, "id")
+                        else tc.get("id", "")
+                    )
+                    logger.info(f"[get_history]   tool_call: name={tc_name}, id={tc_id[:8] if tc_id else 'NONE'}")
 
-                    # 检查是否为子代理调用
                     if tc_name == "task":
                         subagent_name = (
                             tc_args.get("subagent_type", "unknown")
                             if isinstance(tc_args, dict)
                             else "unknown"
                         )
-                        subagent_context = subagent_name
+                        if tc_id:
+                            subagent_stack.append((tc_id, subagent_name))
+                            logger.info(f"[get_history]   pushed to stack: {subagent_name}, stack_size={len(subagent_stack)}")
                         formatted_msg["is_subagent_call"] = True
                         formatted_msg["subagent_name"] = subagent_name
-                        # 不将 task 工具添加到 toolCalls 中
                         continue
 
                     tool_call_entry = {"name": tc_name, "status": "completed"}
@@ -147,20 +156,34 @@ class SessionManager:
                 if tool_calls_data:
                     formatted_msg["toolCalls"] = tool_calls_data
 
-            # 如果在子代理上下文中，标记消息
-            if subagent_context and role in ["assistant", "tool"]:
+            if role == "tool":
+                tool_call_id = getattr(msg, "tool_call_id", "")
+                logger.info(f"[get_history] msg {i}: tool, tool_call_id={tool_call_id[:8] if tool_call_id else 'NONE'}, stack_size={len(subagent_stack)}")
+                is_task_return = False
+                matched_subagent_name = None
+                for j, (task_id, subagent_name) in enumerate(subagent_stack):
+                    if task_id == tool_call_id:
+                        matched_subagent_name = subagent_name
+                        subagent_stack.pop(j)
+                        logger.info(f"[get_history]   matched task return, stack_size={len(subagent_stack)}")
+                        is_task_return = True
+                        break
+
+                if is_task_return:
+                    formatted_msg["in_subagent"] = True
+                    formatted_msg["subagent_name"] = matched_subagent_name
+                    logger.info(f"[get_history] msg {i}: marked task return as in_subagent")
+                elif not subagent_stack:
+                    logger.info(f"[get_history]   skipping non-subagent tool message")
+                    continue
+
+            if subagent_stack and role in ["assistant", "tool"] and not formatted_msg.get("in_subagent"):
                 formatted_msg["in_subagent"] = True
-                formatted_msg["subagent_name"] = subagent_context
-
-            # 过滤非子代理的工具消息（在更新 subagent_context 之前）
-            if role == "tool" and not subagent_context:
-                continue
-
-            # ToolMessage 可能表示子代理结束
-            if role == "tool" and hasattr(msg, "name") and msg.name == "task":
-                subagent_context = None
+                formatted_msg["subagent_name"] = subagent_stack[-1][1]
+                logger.info(f"[get_history] msg {i}: marked as in_subagent")
 
             if content or formatted_msg.get("toolCalls") or formatted_msg.get("is_subagent_call"):
+                logger.info(f"[get_history] msg {i}: appending message, in_subagent={formatted_msg.get('in_subagent')}, subagent_name={formatted_msg.get('subagent_name')}")
                 formatted_messages.append(formatted_msg)
 
         return {"thread_id": thread_id, "messages": formatted_messages}
