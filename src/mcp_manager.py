@@ -1,6 +1,8 @@
 """MCP server connection and tool management."""
 
+import os
 import subprocess
+import sys
 import uuid
 from typing import Any
 
@@ -47,11 +49,23 @@ class McpToolAdapter:
             )
             return False
 
+        env = dict(self.config.env or {})
+
+        if sys.platform == "win32":
+            for key in [
+                "PROGRAMFILES",
+                "ProgramData",
+                "PROGRAMFILES(X86)",
+                "ProgramW6432",
+            ]:
+                if key in os.environ and key not in env:
+                    env[key] = os.environ[key]
+
         self._connection = {
             "transport": "stdio",
             "command": self.config.command,
             "args": self.config.args or [],
-            "env": self.config.env or {},
+            "env": env,
         }
         self._connected = True
         logger.info(f"[McpToolAdapter] Connected to {self.config.name} via stdio")
