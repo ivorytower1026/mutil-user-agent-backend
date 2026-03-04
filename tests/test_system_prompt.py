@@ -1,12 +1,12 @@
 import asyncio
 
-from src.config import flash_llm
+from src.config import big_llm
 from deepagents import create_deep_agent
 from langchain.agents import create_agent
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-llm = flash_llm
+llm = big_llm
 
 agent_2 = create_deep_agent(
             model=llm,
@@ -27,6 +27,8 @@ async def main_2():
     ):
         print(token.content, end="", flush=True)
 
+#=====================================================================
+
 agent = create_agent(
             model=llm,
             system_prompt="你处于plan模式，只能思考，不能写文件。另外今天长沙的温度是20摄氏度",
@@ -46,6 +48,7 @@ async def main_1():
     ):
         print(token.content, end="", flush=True)
 
+#=====================================================================
 
 messages = [
 	SystemMessage(content="你处于plan模式，只能思考，不能写文件。另外今天长沙的温度是20摄氏度"),
