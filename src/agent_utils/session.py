@@ -3,6 +3,7 @@ from typing import Any
 
 from src.database import SessionLocal, Thread
 from src.docker_sandbox import get_thread_backend
+from src.utils.inject_hint import filter_hints
 
 
 class SessionManager:
@@ -97,6 +98,7 @@ class SessionManager:
 
                 if msg_type == "human":
                     role = "user"
+                    content = filter_hints(content)
                 elif msg_type == "ai":
                     role = "assistant"
                 elif msg_type == "tool":
@@ -158,7 +160,7 @@ class SessionManager:
             if role == "tool" and hasattr(msg, "name") and msg.name == "task":
                 subagent_context = None
 
-            if content or formatted_msg.get("toolCalls"):
+            if content or formatted_msg.get("toolCalls") or formatted_msg.get("is_subagent_call"):
                 formatted_messages.append(formatted_msg)
 
         return {"thread_id": thread_id, "messages": formatted_messages}

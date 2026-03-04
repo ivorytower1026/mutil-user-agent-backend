@@ -26,6 +26,7 @@ from src.agent_utils.session import SessionManager
 from src.agent_utils.types import InterruptAction
 from src.agent_utils.stream import AgentStreamRunner
 from src.agent_utils.resume_builder import ResumeCommandBuilder
+from src.utils.inject_hint import inject_hint
 from datetime import datetime
 logger = get_logger("main-agent")
 
@@ -271,17 +272,15 @@ class AgentManager:
 
     def _build_messages(self, message: str, files: list[str] | None, mode: str) -> list:
         """Build message list"""
-        messages = []
+        enhanced_msg = message
         
         if files:
             file_list = "\n".join(f"- {path}" for path in files)
-            messages.append(SystemMessage(
-                content=f"这是用户刚刚上传的文件，后续用户可能会询问你有关这些文件的内容：\n{file_list}"
-            ))
+            file_hint = f"这是用户刚刚上传的文件，后续用户可能会询问你有关这些文件的内容：\n{file_list}"
+            enhanced_msg = inject_hint(enhanced_msg, file_hint)
 
         if mode == "plan":
-            messages.append(SystemMessage(
-                content="""# Plan Mode - 思考模式
+            plan_hint = """# Plan Mode - 思考模式
 
 当前为**思考模式**，你只能进行只读操作：
 - ✅ 可以：读取文件、搜索、分析、规划、向用户提问
@@ -291,9 +290,9 @@ class AgentManager:
 "当前为思考模式，请切换到【执行】模式后再继续操作。"
 
 **不要尝试调用 write_file、edit_file、execute 等工具**，这些操作在思考模式下会被自动拒绝。"""
-            ))
-
-        messages.append(HumanMessage(content=message))
+            enhanced_msg = inject_hint(enhanced_msg, plan_hint)
+        
+        messages = [HumanMessage(content=enhanced_msg)]
         return messages
 
     async def _generate_title(self, thread_id: str, message: str) -> str | None:
