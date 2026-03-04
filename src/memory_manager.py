@@ -218,19 +218,28 @@ class MemoryManager:
             name="add_memory",
             description="""保存信息到长期记忆系统。
 
-何时保存长期记忆:
-- 用户明确表达的个人偏好（编程语言、框架、工具）
-- 用户的工作背景、技术栈
-- 重要的项目信息、配置
-- 跨会话有价值的信息
+            参数:
+            - text (str, 必需): 要保存的记忆内容
+            - metadata (dict, 可选): 元数据字典，如 {"category": "preference"}
 
-示例:
-- add_memory("用户喜欢使用 Python 做数据分析", {"category": "preference"})
-- add_memory("用户是后端工程师，技术栈为 Java", {"category": "background"})
+            何时保存长期记忆:
+            - 用户明确表达的个人偏好（编程语言、框架、工具）
+            - 用户的工作背景、技术栈
+            - 重要的项目信息、配置
+            - 跨会话有价值的信息
 
-注: 会话级短期记忆由LangGraph自动管理，无需手动保存
+            正确示例:
+            - add_memory(text="用户喜欢使用 Python 做数据分析", metadata={"category": "preference"})
+            - add_memory(text="用户是后端工程师，技术栈为 Java", metadata={"category": "background"})
+            - add_memory(text="用户叫大熊")  # metadata 可选
+
+            错误示例（不要这样调用）:
+            - add_memory("用户喜欢Python", '{"category": "preference"}')  ❌ metadata 不能是字符串
+            - add_memory("用户喜欢Python", "category=preference")  ❌ 不是字典格式
+
+            注: 会话级短期记忆由LangGraph自动管理，无需手动保存
             """,
-            func=add_memory,
+        func=add_memory,
         )
 
     def _create_search_memories_tool(self) -> BaseTool:
