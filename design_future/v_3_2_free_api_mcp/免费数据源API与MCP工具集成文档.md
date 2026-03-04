@@ -1,935 +1,670 @@
 # 免费数据源API与MCP工具集成文档
 
-> 文档版本: v1.0  
+> 文档版本: v2.0  
 > 更新时间: 2024-03-04  
+> 优先级: **官方平台优先** > **无Token优先** > **开源项目**  
 > 适用场景: 舆情监控、热点追踪、新闻分析、金融数据获取
+
+---
+
+## ⚠️ 重要说明
+
+本文档优先推荐：
+1. ✅ **官方平台API**（数据可靠、稳定）
+2. ✅ **完全免费无需Token**（开箱即用）
+3. ⚠️ **官方免费需Token**（需注册但免费）
+4. 📦 **开源项目**（社区维护）
+
+❌ **不推荐**第三方聚合API（数据来源不明、稳定性差）
 
 ---
 
 ## 目录
 
-- [一、国内新闻热点API](#一国内新闻热点api)
-  - [1. ALAPI - 今日热榜](#1-alapi---今日热榜)
-  - [2. Yi18事件风云榜](#2-yi18事件风云榜)
-  - [3. 接口盒子 - 微博热搜](#3-接口盒子---微博热搜)
-- [二、MCP服务器工具](#二mcp服务器工具)
-  - [4. World News API MCP](#4-world-news-api-mcp)
-  - [5. Alpha Vantage MCP](#5-alpha-vantage-mcp)
-  - [6. EODHD MCP Server](#6-eodhd-mcp-server)
-  - [7. stock-mcp (中文金融)](#7-stock-mcp-中文金融)
-- [三、测试脚本集合](#三测试脚本集合)
-- [四、集成建议](#四集成建议)
+- [第一优先级：官方免费无需Token](#第一优先级官方免费无需token)
+  - [1. Hacker News API](#1-hacker-news-api)
+  - [2. Reddit JSON Hack](#2-reddit-json-hack)
+- [第二优先级：官方免费需Token](#第二优先级官方免费需token)
+  - [3. World News API](#3-world-news-api)
+  - [4. Alpha Vantage](#4-alpha-vantage)
+  - [5. The Guardian](#5-the-guardian)
+  - [6. NYTimes API](#6-nytimes-api)
+- [第三优先级：开源项目](#第三优先级开源项目)
+  - [7. stock-mcp](#7-stock-mcp)
+  - [8. dailyhot-api](#8-dailyhot-api)
+- [测试脚本集合](#测试脚本集合)
+- [集成建议](#集成建议)
 
 ---
 
-## 一、国内新闻热点API
+## 第一优先级：官方免费无需Token
 
-### 1. ALAPI - 今日热榜
+### 1. Hacker News API ⭐⭐⭐⭐⭐
 
 #### 基本信息
-- **官网**: http://www.alapi.cn
-- **是否免费**: ✅ 免费接口（需注册获取token）
-- **用途**: 获取微博热搜、今日热榜、网易新闻等国内热点资讯
+- **官方平台**: Y Combinator（硅谷创业孵化器）
+- **是否免费**: ✅ 完全免费
+- **需要Token**: ❌ 不需要
+- **官方文档**: https://github.com/HackerNews/API
+- **用途**: 获取技术社区热门新闻、评论、用户信息
+- **可靠性**: ⭐⭐⭐⭐⭐（官方维护，稳定可靠）
 
-#### 1.1 微博热搜榜
+#### 1.1 获取热门故事列表
 
-**接口地址**: `https://v2.alapi.cn/api/new/wbHot`
+**接口地址**: `https://hacker-news.firebaseio.com/v0/topstories.json`
 
 **请求方式**: GET
 
-**输入参数**:
-```json
-{
-  "token": "string (必填) - 用户token，注册后获取",
-  "format": "string (可选) - 返回格式，默认json"
-}
-```
+**输入参数**: 无
 
 **测试脚本**:
 ```bash
 #!/bin/bash
-# test_alapi_weibo.sh
+# test_hackernews_top.sh
 
-TOKEN="your_token_here"
+curl -X GET "https://hacker-news.firebaseio.com/v0/topstories.json" | jq '.'
+```
 
-curl -X GET "https://v2.alapi.cn/api/new/wbHot?token=${TOKEN}" \
-  -H "Content-Type: application/json" | jq '.'
+**测试输出**:
+```json
+[
+  8863,
+  9001,
+  9074,
+  8956,
+  ...
+]
+```
+
+#### 1.2 获取故事详情
+
+**接口地址**: `https://hacker-news.firebaseio.com/v0/item/{id}.json`
+
+**请求方式**: GET
+
+**输入参数**:
+- `id` (路径参数): 故事ID
+
+**测试脚本**:
+```python
+# test_hackernews_detail.py
+import requests
+
+def get_story_detail(story_id):
+    """获取故事详情"""
+    url = f"https://hacker-news.firebaseio.com/v0/item/{story_id}.json"
+    
+    response = requests.get(url, timeout=10)
+    data = response.json()
+    
+    print(f"ID: {data['id']}")
+    print(f"标题: {data['title']}")
+    print(f"作者: {data['by']}")
+    print(f"分数: {data['score']}")
+    print(f"链接: {data.get('url', 'N/A')}")
+    print(f"时间: {data['time']}")
+    print(f"评论数: {data.get('descendants', 0)}")
+    
+    return data
+
+# 获取第1个热门故事
+top_stories = requests.get(
+    "https://hacker-news.firebaseio.com/v0/topstories.json"
+).json()
+
+get_story_detail(top_stories[0])
 ```
 
 **测试输出示例**:
 ```json
 {
-  "code": 200,
-  "msg": "success",
-  "data": [
-    {
-      "hotword": "春节档电影票房",
-      "hotwordnum": "2345678",
-      "hottag": "热",
-      "url": "https://s.weibo.com/weibo?q=%23春节档电影票房%23"
-    },
-    {
-      "hotword": "科技公司裁员",
-      "hotwordnum": "1234567",
-      "hottag": "新",
-      "url": "https://s.weibo.com/weibo?q=%23科技公司裁员%23"
-    }
-  ],
-  "count": 50
+  "by": "pg",
+  "descendants": 150,
+  "id": 8863,
+  "kids": [8952, 9168, ...],
+  "score": 111,
+  "time": 1175714200,
+  "title": "My YC app: Dropbox",
+  "type": "story",
+  "url": "http://www.getdropbox.com/u/2/screencast.html"
 }
 ```
 
-**Python测试脚本**:
-```python
-import requests
+#### 1.3 获取用户信息
 
-def test_alapi_weibo(token):
-    url = "https://v2.alapi.cn/api/new/wbHot"
-    params = {"token": token}
-    
-    response = requests.get(url, params=params)
-    data = response.json()
-    
-    print(f"状态码: {data['code']}")
-    print(f"热搜数量: {len(data['data'])}")
-    print("\n前3条热搜:")
-    for i, item in enumerate(data['data'][:3], 1):
-        print(f"{i}. {item['hotword']} - 热度: {item['hotwordnum']} - 标签: {item['hottag']}")
-
-# 使用
-test_alapi_weibo("your_token_here")
-```
-
-#### 1.2 今日热榜（多平台聚合）
-
-**接口地址**: `https://v2.alapi.cn/api/new/toutiao`
-
-**输入参数**:
-```json
-{
-  "token": "string (必填) - 用户token",
-  "type": "string (可选) - hot:热门, recommend:推荐，默认hot"
-}
-```
+**接口地址**: `https://hacker-news.firebaseio.com/v0/user/{username}.json`
 
 **测试脚本**:
 ```python
-import requests
-
-def test_alapi_toutiao(token):
-    url = "https://v2.alapi.cn/api/new/toutiao"
-    params = {
-        "token": token,
-        "type": "hot"
-    }
+def get_user_info(username):
+    """获取用户信息"""
+    url = f"https://hacker-news.firebaseio.com/v0/user/{username}.json"
     
-    response = requests.get(url, params=params)
+    response = requests.get(url, timeout=10)
     data = response.json()
     
-    print(f"状态: {data['msg']}")
-    print(f"总条数: {data['data']['total']}")
-    print("\n热门资讯:")
-    for item in data['data']['list'][:5]:
-        print(f"- [{item['source']}] {item['title']}")
-        print(f"  热度: {item.get('hot_score', 'N/A')}")
+    print(f"用户名: {data['id']}")
+    print(f"Karma积分: {data['karma']}")
+    print(f"创建时间: {data['created']}")
+    print(f"提交数: {len(data.get('submitted', []))}")
+    
+    return data
+
+get_user_info("pg")  # Paul Graham
 ```
 
-**输出示例**:
+**可用端点**:
+- `/topstories.json` - 热门故事
+- `/newstories.json` - 最新故事
+- `/beststories.json` - 最佳故事
+- `/askstories.json` - Ask HN
+- `/showstories.json` - Show HN
+- `/jobstories.json` - 工作机会
+
+---
+
+### 2. Reddit JSON Hack ⭐⭐⭐⭐
+
+#### 基本信息
+- **官方平台**: Reddit
+- **是否免费**: ✅ 完全免费
+- **需要Token**: ❌ 不需要（使用特殊技巧）
+- **官方说明**: Reddit官方支持`.json`格式输出
+- **用途**: 获取Reddit帖子和评论
+- **可靠性**: ⭐⭐⭐⭐（官方功能，但需注意频率限制）
+
+#### 2.1 获取帖子JSON
+
+**方法**: 任何Reddit帖子URL后加 `.json`
+
+**接口格式**: `https://www.reddit.com/r/{subreddit}/comments/{post_id}/{title}/.json`
+
+**输入参数**: 无（URL路径参数）
+
+**测试脚本**:
+```python
+# test_reddit_json.py
+import requests
+
+def get_reddit_post(subreddit, post_id):
+    """获取Reddit帖子JSON数据"""
+    url = f"https://www.reddit.com/r/{subreddit}/comments/{post_id}/.json"
+    
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    }
+    
+    response = requests.get(url, headers=headers, timeout=10)
+    data = response.json()
+    
+    # data[0] 是帖子信息
+    post_data = data[0]['data']['children'][0]['data']
+    
+    print(f"标题: {post_data['title']}")
+    print(f"作者: {post_data['author']}")
+    print(f"点赞数: {post_data['score']}")
+    print(f"评论数: {post_data['num_comments']}")
+    print(f"URL: {post_data['url']}")
+    print(f"创建时间: {post_data['created_utc']}")
+    
+    # data[1] 是评论信息
+    if len(data) > 1:
+        comments = data[1]['data']['children']
+        print(f"\n前3条评论:")
+        for i, comment in enumerate(comments[:3], 1):
+            if comment['kind'] == 't1':
+                print(f"{i}. {comment['data']['author']}: {comment['data']['body'][:100]}...")
+    
+    return data
+
+# 使用示例（替换为实际的post_id）
+# get_reddit_post("Python", "actual_post_id_here")
+```
+
+#### 2.2 获取Subreddit热门
+
+**接口格式**: `https://www.reddit.com/r/{subreddit}/hot.json?limit={count}`
+
+**测试脚本**:
+```python
+def get_subreddit_hot(subreddit, limit=10):
+    """获取Subreddit热门帖子"""
+    url = f"https://www.reddit.com/r/{subreddit}/hot.json?limit={limit}"
+    
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    }
+    
+    response = requests.get(url, headers=headers, timeout=10)
+    data = response.json()
+    
+    posts = data['data']['children']
+    
+    print(f"r/{subreddit} 热门帖子:")
+    for i, post in enumerate(posts, 1):
+        post_data = post['data']
+        print(f"{i}. {post_data['title']}")
+        print(f"   点赞: {post_data['score']} | 评论: {post_data['num_comments']}")
+        print(f"   作者: u/{post_data['author']}")
+        print()
+    
+    return data
+
+# 获取Python版块热门
+get_subreddit_hot("Python", limit=5)
+```
+
+**测试输出示例**:
 ```json
 {
-  "code": 200,
-  "msg": "success",
+  "kind": "Listing",
   "data": {
-    "total": 100,
-    "list": [
+    "children": [
       {
-        "title": "2024年GDP增速目标",
-        "source": "知乎",
-        "url": "https://...",
-        "hot_score": 98765,
-        "create_time": "2024-03-04 10:30:00"
+        "kind": "t3",
+        "data": {
+          "title": "Python 3.12 Released",
+          "author": "python_dev",
+          "score": 1523,
+          "num_comments": 245,
+          "url": "https://...",
+          "created_utc": 1234567890
+        }
       }
     ]
   }
 }
 ```
 
-**申请方式**:
-1. 访问 http://www.alapi.cn 注册
-2. 在个人中心获取token
-3. 免费接口有每日调用限制（具体查看官网）
+**注意事项**:
+- ⚠️ 需要设置User-Agent，否则可能被限制
+- ⚠️ 建议每次请求间隔2秒，避免被封IP
+- ⚠️ 官方API收费，此方法仅适用于小规模使用
 
 ---
 
-### 2. Yi18事件风云榜
+## 第二优先级：官方免费需Token
+
+### 3. World News API ⭐⭐⭐⭐⭐
 
 #### 基本信息
-- **官网**: http://top.yi18.net
-- **是否免费**: ✅ 完全免费，无需注册
-- **用途**: 获取基于百度、搜狗、Google趋势的热点关键词和新闻事件
+- **官方平台**: worldnewsapi.com
+- **是否免费**: ✅ 每天150次免费请求
+- **需要Token**: ✅ 需要（免费注册）
+- **申请地址**: https://worldnewsapi.com/register
+- **用途**: 全球新闻搜索、情感分析、地理位置过滤
+- **可靠性**: ⭐⭐⭐⭐⭐（官方维护，数据质量高）
 
-#### 2.1 获取热词列表
+#### 3.1 搜索新闻
 
-**接口地址**: `http://api.yi18.net/top/list`
+**接口地址**: `https://api.worldnewsapi.com/search-news`
 
 **请求方式**: GET
 
 **输入参数**:
-```
-无必填参数（支持可选分页参数，具体查看官方文档）
+```json
+{
+  "api-key": "string (必填) - API密钥",
+  "text": "string (可选) - 搜索文本",
+  "language": "string (可选) - 语言代码，如en, zh",
+  "source-country": "string (可选) - 国家代码，如us, cn",
+  "categories": "string (可选) - 分类，如politics, technology",
+  "number": "integer (可选) - 返回数量，默认10",
+  "earliest-publish-date": "string (可选) - 最早发布时间",
+  "latest-publish-date": "string (可选) - 最晚发布时间"
+}
 ```
 
 **测试脚本**:
-```bash
-#!/bin/bash
-# test_yi18_list.sh
+```python
+# test_worldnews_api.py
+import requests
+import os
 
-curl -X GET "http://api.yi18.net/top/list" | jq '.'
+def search_news(api_key, text, language="en", number=10):
+    """搜索新闻"""
+    url = "https://api.worldnewsapi.com/search-news"
+    
+    params = {
+        "api-key": api_key,
+        "text": text,
+        "language": language,
+        "number": number
+    }
+    
+    response = requests.get(url, params=params, timeout=10)
+    data = response.json()
+    
+    print(f"找到 {data.get('available_results', 0)} 条新闻")
+    print(f"\n前{len(data['news'])}条:")
+    
+    for i, news in enumerate(data['news'], 1):
+        print(f"\n{i}. {news['title']}")
+        print(f"   来源: {news.get('source', 'N/A')}")
+        print(f"   时间: {news['publish_date']}")
+        print(f"   情感: {news.get('sentiment', 'N/A')}")
+        print(f"   URL: {news['url']}")
+    
+    return data
+
+# 使用
+api_key = os.getenv("WORLD_NEWS_API_KEY", "your_key_here")
+search_news(api_key, "artificial intelligence", language="en", number=5)
 ```
 
 **测试输出示例**:
 ```json
 {
-  "yi18": [
-    {
-      "id": 1001,
-      "title": "人工智能发展现状",
-      "keywords": "AI,人工智能,机器学习",
-      "count": 125678,
-      "time": "2024-03-04",
-      "category": "科技"
-    },
-    {
-      "id": 1002,
-      "title": "新能源汽车销量",
-      "keywords": "新能源,电动车,特斯拉",
-      "count": 98765,
-      "time": "2024-03-04",
-      "category": "汽车"
-    }
-  ],
-  "total": 500
-}
-```
-
-**Python测试脚本**:
-```python
-import requests
-
-def test_yi18_list():
-    url = "http://api.yi18.net/top/list"
-    
-    response = requests.get(url)
-    data = response.json()
-    
-    print(f"总热词数: {data.get('total', 0)}")
-    print("\n热门关键词:")
-    for item in data['yi18'][:10]:
-        print(f"- {item['title']}")
-        print(f"  关键词: {item['keywords']}")
-        print(f"  关注度: {item['count']}")
-        print(f"  分类: {item.get('category', 'N/A')}")
-        print()
-
-test_yi18_list()
-```
-
-#### 2.2 获取热词详情
-
-**接口地址**: `http://api.yi18.net/top/detail`
-
-**输入参数**:
-```json
-{
-  "id": "integer (必填) - 热词ID，从列表接口获取"
-}
-```
-
-**测试脚本**:
-```python
-import requests
-
-def test_yi18_detail(keyword_id):
-    url = "http://api.yi18.net/top/detail"
-    params = {"id": keyword_id}
-    
-    response = requests.get(url, params=params)
-    data = response.json()
-    
-    print(f"标题: {data['title']}")
-    print(f"关键词: {data['keywords']}")
-    print(f"描述: {data.get('description', 'N/A')}")
-    print(f"相关新闻数: {len(data.get('news', []))}")
-    
-    print("\n相关新闻:")
-    for news in data.get('news', [])[:3]:
-        print(f"- {news['title']}")
-        print(f"  来源: {news['source']}")
-        print(f"  时间: {news['time']}")
-
-# 使用
-test_yi18_detail(1001)
-```
-
-**输出示例**:
-```json
-{
-  "id": 1001,
-  "title": "人工智能发展现状",
-  "keywords": "AI,人工智能,机器学习",
-  "description": "2024年人工智能技术在各领域的最新发展...",
-  "count": 125678,
+  "available_results": 1500,
   "news": [
     {
-      "title": "OpenAI发布最新模型",
-      "source": "科技日报",
-      "url": "https://...",
-      "time": "2024-03-04 09:00:00",
-      "summary": "摘要内容..."
+      "id": "abc123",
+      "title": "OpenAI Announces GPT-5",
+      "text": "Full article text...",
+      "url": "https://example.com/article",
+      "image": "https://example.com/image.jpg",
+      "publish_date": "2024-03-04 10:30:00",
+      "source_country": "us",
+      "language": "en",
+      "sentiment": 0.75,
+      "authors": ["John Smith"],
+      "category": ["technology", "business"]
     }
   ]
 }
 ```
 
+#### 3.2 获取头条新闻
+
+**接口地址**: `https://api.worldnewsapi.com/top-news`
+
+**测试脚本**:
+```python
+def get_top_news(api_key, country="us", language="en"):
+    """获取头条新闻"""
+    url = "https://api.worldnewsapi.com/top-news"
+    
+    params = {
+        "api-key": api_key,
+        "source-country": country,
+        "language": language
+    }
+    
+    response = requests.get(url, params=params, timeout=10)
+    data = response.json()
+    
+    print(f"{country.upper()} 今日头条:")
+    for i, news in enumerate(data['news'][:5], 1):
+        print(f"{i}. {news['title']}")
+    
+    return data
+
+get_top_news(api_key, country="us", language="en")
+```
+
+**申请步骤**:
+1. 访问 https://worldnewsapi.com/register
+2. 填写邮箱和密码
+3. 验证邮箱
+4. 获取API Key（立即生效）
+5. 免费额度：每天150次请求
+
 ---
 
-### 3. 接口盒子 - 微博热搜
+### 4. Alpha Vantage ⭐⭐⭐⭐⭐
 
 #### 基本信息
-- **官网**: https://www.apihz.cn
-- **是否免费**: ✅ 免费额度（需注册获取ID和KEY）
-- **用途**: 获取微博实时上升热点、百度热搜、知乎热榜等
+- **官方平台**: alphavantage.co
+- **是否免费**: ✅ 每天500次，每分钟5次
+- **需要Token**: ✅ 需要（免费注册）
+- **申请地址**: https://www.alphavantage.co/support/#api-key
+- **用途**: 股票数据、新闻情感、技术指标、基本面数据
+- **可靠性**: ⭐⭐⭐⭐⭐（全球知名金融数据提供商）
 
-#### 3.1 微博实时上升热点
+#### 4.1 获取股票报价
 
-**接口地址**: `https://api.apihz.cn/v1/weibo/hotrising`
+**接口地址**: `https://www.alphavantage.co/query`
 
 **请求方式**: GET
 
 **输入参数**:
 ```json
 {
-  "id": "string (必填) - 用户ID，注册后获取",
-  "key": "string (必填) - 用户KEY，注册后获取",
-  "format": "string (可选) - json或xml，默认json"
+  "function": "GLOBAL_QUOTE",
+  "symbol": "string (必填) - 股票代码",
+  "apikey": "string (必填) - API密钥"
 }
 ```
 
 **测试脚本**:
-```bash
-#!/bin/bash
-# test_apihz_weibo.sh
-
-ID="your_id_here"
-KEY="your_key_here"
-
-curl -X GET "https://api.apihz.cn/v1/weibo/hotrising?id=${ID}&key=${KEY}" | jq '.'
-```
-
-**Python测试脚本**:
 ```python
+# test_alpha_vantage.py
 import requests
+import os
 
-def test_apihz_weibo(user_id, user_key):
-    url = "https://api.apihz.cn/v1/weibo/hotrising"
+def get_stock_quote(api_key, symbol):
+    """获取股票报价"""
+    url = "https://www.alphavantage.co/query"
+    
     params = {
-        "id": user_id,
-        "key": user_key,
-        "format": "json"
+        "function": "GLOBAL_QUOTE",
+        "symbol": symbol,
+        "apikey": api_key
     }
     
-    response = requests.get(url, params=params)
+    response = requests.get(url, params=params, timeout=10)
     data = response.json()
     
-    if data['code'] != 200:
-        print(f"错误: {data['msg']}")
-        return
+    quote = data.get('Global Quote', {})
     
-    print(f"实时上升热点数: {len(data['data'])}")
-    print("\n热点列表:")
-    for item in data['data'][:10]:
-        print(f"{item['rank']}. {item['keyword']}")
-        print(f"   热度: {item['heat']} | 趋势: {item['trend']}")
-        print(f"   链接: {item['url']}")
-        print()
+    print(f"股票: {symbol}")
+    print(f"开盘价: ${quote.get('02. open', 'N/A')}")
+    print(f"最高价: ${quote.get('03. high', 'N/A')}")
+    print(f"最低价: ${quote.get('04. low', 'N/A')}")
+    print(f"收盘价: ${quote.get('05. price', 'N/A')}")
+    print(f"成交量: {quote.get('06. volume', 'N/A')}")
+    print(f"涨跌幅: {quote.get('10. change percent', 'N/A')}")
+    
+    return data
 
-# 使用
-test_apihz_weibo("your_id", "your_key")
+api_key = os.getenv("ALPHA_VANTAGE_KEY", "your_key_here")
+get_stock_quote(api_key, "AAPL")
 ```
 
 **测试输出示例**:
 ```json
 {
-  "code": 200,
-  "msg": "success",
-  "data": [
-    {
-      "rank": 1,
-      "keyword": "两会热点话题",
-      "heat": 3456789,
-      "trend": "上升",
-      "label": "热",
-      "url": "https://s.weibo.com/weibo?q=%23两会热点话题%23",
-      "update_time": "2024-03-04 15:30:00"
-    },
-    {
-      "rank": 2,
-      "keyword": "新能源汽车补贴",
-      "heat": 2345678,
-      "trend": "上升",
-      "label": "新",
-      "url": "https://s.weibo.com/weibo?q=%23新能源汽车补贴%23",
-      "update_time": "2024-03-04 15:30:00"
-    }
-  ],
-  "total": 50
-}
-```
-
-**申请方式**:
-1. 访问 https://www.apihz.cn/user/ 注册
-2. 在用户中心获取ID和KEY
-3. 免费用户有每日调用次数限制
-
----
-
-## 二、MCP服务器工具
-
-### 4. World News API MCP
-
-#### 基本信息
-- **GitHub**: https://github.com/ddsky/world-news-api-mcp
-- **是否免费**: ✅ 免费额度（每天150次请求）
-- **用途**: 全球新闻搜索、情感分析、地理位置过滤、报纸头版
-
-#### 4.1 安装与配置
-
-**安装命令**:
-```bash
-npm install -g world-news-api-mcp
-```
-
-**配置环境变量**:
-```bash
-# Windows PowerShell
-$env:WORLD_NEWS_API_KEY="your_api_key_here"
-
-# macOS/Linux
-export WORLD_NEWS_API_KEY="your_api_key_here"
-```
-
-**Claude Desktop配置** (`claude_desktop_config.json`):
-```json
-{
-  "servers": {
-    "world-news-api": {
-      "command": "world-news-api-mcp",
-      "env": {
-        "WORLD_NEWS_API_KEY": "your_api_key_here"
-      }
-    }
+  "Global Quote": {
+    "01. symbol": "AAPL",
+    "02. open": "175.50",
+    "03. high": "178.20",
+    "04. low": "174.80",
+    "05. price": "177.30",
+    "06. volume": "52345678",
+    "07. latest trading day": "2024-03-04",
+    "08. previous close": "174.20",
+    "09. change": "3.10",
+    "10. change percent": "1.7793%"
   }
 }
 ```
 
-#### 4.2 核心工具详解
+#### 4.2 获取新闻情感
 
-##### 工具1: `search_news` - 搜索新闻
+**接口地址**: `https://www.alphavantage.co/query?function=NEWS_SENTIMENT`
 
-**用途**: 按关键词、时间、地点、分类、情感等多维度搜索新闻
-
-**输入参数**:
-```json
-{
-  "text": "string (可选) - 搜索文本，最少3个字符",
-  "language": "string (可选) - ISO 639语言代码，如en, zh, es",
-  "source-country": "string (可选) - ISO 3166国家代码，如us, cn, gb",
-  "categories": "string (可选) - 分类，如politics, sports, business, technology",
-  "number": "integer (可选) - 返回数量，1-100，默认10",
-  "offset": "integer (可选) - 偏移量，用于分页",
-  "earliest-publish-date": "string (可选) - 最早发布时间，格式YYYY-MM-DD HH:MM:SS",
-  "latest-publish-date": "string (可选) - 最晚发布时间",
-  "min-sentiment": "number (可选) - 最小情感值，范围[-1,1]",
-  "max-sentiment": "number (可选) - 最大情感值，范围[-1,1]",
-  "news-sources": "string (可选) - 新闻来源，逗号分隔",
-  "authors": "string (可选) - 作者，逗号分隔",
-  "entities": "string (可选) - 实体过滤，如ORG:Tesla,PER:Elon Musk",
-  "location-filter": "string (可选) - 位置过滤，格式latitude,longitude,radius_km",
-  "sort": "string (可选) - 排序字段，如publish-time",
-  "sort-direction": "string (可选) - ASC或DESC"
-}
-```
-
-**测试脚本（MCP客户端）**:
+**测试脚本**:
 ```python
-# test_world_news_mcp.py
-import requests
-import json
-
-class WorldNewsMCPClient:
-    def __init__(self, base_url="http://localhost:8000"):
-        self.base_url = base_url
+def get_news_sentiment(api_key, tickers="AAPL"):
+    """获取股票新闻情感"""
+    url = "https://www.alphavantage.co/query"
     
-    def search_news(self, **kwargs):
-        """搜索新闻"""
-        payload = {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "tools/call",
-            "params": {
-                "name": "search_news",
-                "arguments": kwargs
-            }
-        }
-        
-        response = requests.post(
-            f"{self.base_url}/mcp",
-            json=payload,
-            headers={"Content-Type": "application/json"}
-        )
-        
-        return response.json()
-
-# 测试
-client = WorldNewsMCPClient()
-
-# 测试1: 搜索AI相关英文新闻
-result = client.search_news(
-    text="artificial intelligence",
-    language="en",
-    categories="technology",
-    number=5
-)
-
-print("搜索结果:")
-print(json.dumps(result, indent=2, ensure_ascii=False))
-```
-
-**测试输出示例**:
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 1,
-  "result": {
-    "news": [
-      {
-        "id": "abc123",
-        "title": "OpenAI Announces GPT-5 with Revolutionary Capabilities",
-        "text": "Full article text...",
-        "url": "https://example.com/news/ai-article",
-        "image": "https://example.com/image.jpg",
-        "publish_date": "2024-03-04 10:30:00",
-        "source_country": "us",
-        "language": "en",
-        "authors": ["John Smith"],
-        "sentiment": 0.75,
-        "summary": "Short summary...",
-        "category": ["technology", "business"]
-      }
-    ],
-    "available_results": 150,
-    "offset": 0,
-    "number": 5
-  }
-}
-```
-
-##### 工具2: `get_top_news` - 获取头条新闻
-
-**输入参数**:
-```json
-{
-  "source-country": "string (必填) - ISO 3166国家代码",
-  "language": "string (必填) - ISO 639语言代码",
-  "date": "string (可选) - 日期YYYY-MM-DD，默认今天",
-  "headlines-only": "boolean (可选) - 仅返回基本信息，默认false"
-}
-```
-
-**测试脚本**:
-```python
-# 获取美国今日英文头条
-result = client.get_top_news(
-    source_country="us",
-    language="en"
-)
-
-print("美国今日头条:")
-for news in result['result']['news'][:5]:
-    print(f"- {news['title']}")
-    print(f"  来源: {news.get('source', 'N/A')}")
-    print(f"  时间: {news['publish_date']}")
-```
-
-##### 工具3: `extract_news` - 提取新闻文章
-
-**输入参数**:
-```json
-{
-  "url": "string (必填) - 新闻文章URL",
-  "analyze": "boolean (可选) - 是否分析内容（实体、情感等），默认false"
-}
-```
-
-**测试脚本**:
-```python
-# 提取并分析文章
-result = client.extract_news(
-    url="https://www.bbc.com/news/world-us-canada-59340789",
-    analyze=True
-)
-
-print("文章信息:")
-print(f"标题: {result['result']['title']}")
-print(f"作者: {result['result'].get('authors', [])}")
-print(f"情感: {result['result'].get('sentiment', 'N/A')}")
-print(f"实体: {result['result'].get('entities', [])}")
-```
-
-##### 工具4: `get_geo_coordinates` - 获取地理坐标
-
-**输入参数**:
-```json
-{
-  "location": "string (必填) - 地址或位置名称"
-}
-```
-
-**测试脚本**:
-```python
-# 获取北京坐标
-result = client.get_geo_coordinates(location="Beijing, China")
-
-print("坐标信息:")
-print(f"纬度: {result['result']['latitude']}")
-print(f"经度: {result['result']['longitude']}")
-
-# 用于位置过滤搜索
-coords = f"{result['result']['latitude']},{result['result']['longitude']},50"
-news_result = client.search_news(
-    text="earthquake",
-    location-filter=coords,
-    language="en"
-)
-```
-
-**申请API Key**: https://worldnewsapi.com/register
-
----
-
-### 5. Alpha Vantage MCP
-
-#### 基本信息
-- **GitHub**: https://github.com/alphavantage/alpha_vantage_mcp
-- **是否免费**: ✅ 免费API Key（每分钟5次调用，每天500次）
-- **用途**: 股票数据、新闻情感、技术指标、基本面数据、期权数据
-
-#### 5.1 安装与配置
-
-**安装uv**:
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-```
-
-**Claude Desktop配置**:
-```json
-{
-  "mcpServers": {
-    "alphavantage": {
-      "command": "uvx",
-      "args": ["av-mcp", "YOUR_API_KEY"]
+    params = {
+        "function": "NEWS_SENTIMENT",
+        "tickers": tickers,
+        "apikey": api_key,
+        "limit": 10
     }
-  }
-}
+    
+    response = requests.get(url, params=params, timeout=10)
+    data = response.json()
+    
+    print(f"{tickers} 相关新闻:")
+    
+    for i, item in enumerate(data.get('feed', [])[:5], 1):
+        print(f"\n{i}. {item['title']}")
+        print(f"   时间: {item['time_published']}")
+        print(f"   整体情感: {item['overall_sentiment_label']}")
+        print(f"   情感分数: {item['overall_sentiment_score']}")
+        
+        # 股票特定情感
+        for ticker_sentiment in item.get('ticker_sentiment', []):
+            if ticker_sentiment['ticker'] == tickers:
+                print(f"   {tickers}情感: {ticker_sentiment['ticker_sentiment_label']}")
+    
+    return data
+
+get_news_sentiment(api_key, "AAPL")
 ```
 
-**远程连接**:
-```
-https://mcp.alphavantage.co/mcp?apikey=YOUR_API_KEY
-```
+**申请步骤**:
+1. 访问 https://www.alphavantage.co/support/#api-key
+2. 输入邮箱
+3. 立即获得API Key（无需验证）
+4. 免费额度：每天500次，每分钟5次
 
-#### 5.2 核心工具详解
+---
 
-##### 工具1: `NEWS_SENTIMENT` - 新闻情感分析
+### 5. The Guardian ⭐⭐⭐⭐
 
-**用途**: 获取股票相关新闻及其情感分析
+#### 基本信息
+- **官方平台**: theguardian.com（英国《卫报》）
+- **是否免费**: ✅ 每天12,000次
+- **需要Token**: ✅ 需要（免费注册）
+- **申请地址**: https://open-platform.theguardian.com/
+- **用途**: 英国新闻、文章搜索
+- **可靠性**: ⭐⭐⭐⭐⭐（百年老牌媒体）
 
-**输入参数** (通过TOOL_CALL包装):
-```json
-{
-  "tickers": "string (可选) - 股票代码，如AAPL,MSFT",
-  "topics": "string (可选) - 主题，如technology, earnings",
-  "time_from": "string (可选) - 开始时间YYYYMMDDTHHMM",
-  "time_to": "string (可选) - 结束时间YYYYMMDDTHHMM",
-  "sort": "string (可选) - 排序方式，LATEST, EARLIEST, RELEVANCE",
-  "limit": "integer (可选) - 返回数量，默认50"
-}
-```
+#### 5.1 搜索文章
+
+**接口地址**: `https://content.guardianapis.com/search`
 
 **测试脚本**:
 ```python
-# test_alpha_vantage_mcp.py
+# test_guardian.py
 import requests
-import json
+import os
 
-class AlphaVantageMCPClient:
-    def __init__(self, api_key, base_url="https://mcp.alphavantage.co"):
-        self.api_key = api_key
-        self.base_url = base_url
+def search_guardian(api_key, query, page_size=10):
+    """搜索卫报文章"""
+    url = "https://content.guardianapis.com/search"
     
-    def call_tool(self, tool_name, arguments):
-        """调用MCP工具"""
-        payload = {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "tools/call",
-            "params": {
-                "name": "TOOL_CALL",
-                "arguments": {
-                    "tool_name": tool_name,
-                    "arguments": arguments
-                }
-            }
-        }
-        
-        response = requests.post(
-            f"{self.base_url}/mcp?apikey={self.api_key}",
-            json=payload,
-            headers={"Content-Type": "application/json"}
-        )
-        
-        return response.json()
-
-# 测试
-client = AlphaVantageMCPClient("your_api_key")
-
-# 获取苹果相关新闻情感
-result = client.call_tool("NEWS_SENTIMENT", {
-    "tickers": "AAPL",
-    "limit": 10
-})
-
-print("新闻情感分析:")
-print(json.dumps(result, indent=2, ensure_ascii=False))
-```
-
-**测试输出示例**:
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 1,
-  "result": {
-    "items": [
-      {
-        "title": "Apple Announces New Product Line",
-        "url": "https://...",
-        "time_published": "2024-03-04 10:30:00",
-        "authors": ["Jane Doe"],
-        "summary": "Apple unveils...",
-        "banner_image": "https://...",
-        "source": "Tech News",
-        "category_within_source": "Technology",
-        "source_domain": "technews.com",
-        "topics": [
-          {
-            "topic": "Technology",
-            "relevance_score": "0.8"
-          }
-        ],
-        "overall_sentiment_score": 0.45,
-        "overall_sentiment_label": "Somewhat-Bullish",
-        "ticker_sentiment": [
-          {
-            "ticker": "AAPL",
-            "relevance_score": "0.9",
-            "ticker_sentiment_score": "0.55",
-            "ticker_sentiment_label": "Bullish"
-          }
-        ]
-      }
-    ],
-    "sentiment_score_definition": {
-      "Bearish": "x <= -0.35",
-      "Somewhat-Bearish": "-0.35 < x <= -0.15",
-      "Neutral": "-0.15 < x < 0.15",
-      "Somewhat-Bullish": "0.15 <= x < 0.35",
-      "Bullish": "x >= 0.35"
+    params = {
+        "q": query,
+        "api-key": api_key,
+        "page-size": page_size
     }
-  }
-}
-```
-
-##### 工具2: `TIME_SERIES_DAILY` - 日线数据
-
-**输入参数**:
-```json
-{
-  "symbol": "string (必填) - 股票代码",
-  "outputsize": "string (可选) - compact(最近100条)或full(全部)",
-  "datatype": "string (可选) - json或csv，默认json"
-}
-```
-
-**测试脚本**:
-```python
-# 获取苹果日线数据
-result = client.call_tool("TIME_SERIES_DAILY", {
-    "symbol": "AAPL",
-    "outputsize": "compact"
-})
-
-print("日线数据:")
-for date, data in list(result['result']['Time Series (Daily)'].items())[:5]:
-    print(f"{date}: 开{data['1. open']} 高{data['2. high']} 低{data['3. low']} 收{data['4. close']}")
-```
-
-##### 工具3: `COMPANY_OVERVIEW` - 公司概览
-
-**输入参数**:
-```json
-{
-  "symbol": "string (必填) - 股票代码"
-}
-```
-
-**测试脚本**:
-```python
-result = client.call_tool("COMPANY_OVERVIEW", {
-    "symbol": "AAPL"
-})
-
-print("公司信息:")
-print(f"名称: {result['result']['Name']}")
-print(f"行业: {result['result']['Industry']}")
-print(f"市值: {result['result']['MarketCapitalization']}")
-print(f"P/E比率: {result['result']['PERatio']}")
-print(f"描述: {result['result']['Description'][:200]}...")
-```
-
-**申请API Key**: https://www.alphavantage.co/support/#api-key
-
----
-
-### 6. EODHD MCP Server
-
-#### 基本信息
-- **GitHub**: https://github.com/EodHistoricalData/EODHD-MCP-Server
-- **是否免费**: ⚠️ 有免费试用，付费订阅（基础计划$19.99/月）
-- **用途**: 全球股票、期权、新闻情感、技术指标、基本面数据
-
-#### 6.1 安装与配置
-
-**安装**:
-```bash
-git clone https://github.com/EodHistoricalData/EODHD-MCP-Server.git
-cd EODHD-MCP-Server
-pip install -r requirements.txt
-```
-
-**配置.env文件**:
-```bash
-EODHD_API_KEY=YOUR_EODHD_API_KEY
-MCP_HOST=127.0.0.1
-MCP_PORT=8000
-```
-
-**启动HTTP服务器**:
-```bash
-python server.py
-# 访问 http://127.0.0.1:8000/mcp
-```
-
-#### 6.2 核心工具详解
-
-##### 工具1: `get_sentiment_data` - 情感数据
-
-**输入参数**:
-```json
-{
-  "symbols": "string (必填) - 股票代码，如AAPL.US",
-  "from": "string (可选) - 开始日期YYYY-MM-DD",
-  "to": "string (可选) - 结束日期YYYY-MM-DD"
-}
-```
-
-**测试脚本**:
-```python
-# test_eodhd_mcp.py
-import requests
-
-class EODHDMCPClient:
-    def __init__(self, base_url="http://localhost:8000"):
-        self.base_url = base_url
     
-    def call_tool(self, tool_name, arguments):
-        payload = {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "tools/call",
-            "params": {
-                "name": tool_name,
-                "arguments": arguments
-            }
-        }
-        
-        response = requests.post(
-            f"{self.base_url}/mcp",
-            json=payload
-        )
-        
-        return response.json()
+    response = requests.get(url, params=params, timeout=10)
+    data = response.json()
+    
+    results = data['response']['results']
+    
+    print(f"找到 {data['response']['total']} 篇文章")
+    print(f"\n前{len(results)}篇:")
+    
+    for i, article in enumerate(results, 1):
+        print(f"\n{i}. {article['webTitle']}")
+        print(f"   类型: {article['type']}")
+        print(f"   版块: {article['sectionName']}")
+        print(f"   时间: {article['webPublicationDate']}")
+        print(f"   URL: {article['webUrl']}")
+    
+    return data
 
-client = EODHDMCPClient()
-
-# 获取情感数据
-result = client.call_tool("get_sentiment_data", {
-    "symbols": "AAPL.US",
-    "from": "2024-01-01",
-    "to": "2024-01-31"
-})
-
-print("情感数据:")
-for item in result['result'][:5]:
-    print(f"日期: {item['date']}")
-    print(f"情感分数: {item['sentiment']}")
-    print(f"新闻数: {item['news_count']}")
-    print()
+api_key = os.getenv("GUARDIAN_API_KEY", "your_key_here")
+search_guardian(api_key, "artificial intelligence", page_size=5)
 ```
 
-##### 工具2: `get_company_news` - 公司新闻
-
-**输入参数**:
-```json
-{
-  "symbols": "string (必填) - 股票代码",
-  "from": "string (可选) - 开始日期",
-  "to": "string (可选) - 结束日期",
-  "limit": "integer (可选) - 返回数量"
-}
-```
-
-##### 工具3: `get_historical_stock_prices` - 历史股价
-
-**输入参数**:
-```json
-{
-  "symbol": "string (必填) - 股票代码，如AAPL.US",
-  "from": "string (可选) - 开始日期",
-  "to": "string (可选) - 结束日期",
-  "period": "string (可选) - d(日线), w(周线), m(月线)"
-}
-```
-
-**官网**: https://eodhd.com
+**申请步骤**:
+1. 访问 https://open-platform.theguardian.com/
+2. 点击"Get API Key"
+3. 注册账号
+4. 获取API Key
+5. 免费额度：每天12,000次
 
 ---
 
-### 7. stock-mcp (中文金融)
+### 6. NYTimes API ⭐⭐⭐⭐
 
 #### 基本信息
+- **官方平台**: nytimes.com（纽约时报）
+- **是否免费**: ✅ 每天1,000次
+- **需要Token**: ✅ 需要（免费注册）
+- **申请地址**: https://developer.nytimes.com/
+- **用途**: 纽约时报新闻、文章搜索
+- **可靠性**: ⭐⭐⭐⭐⭐（美国顶级媒体）
+
+#### 6.1 搜索文章
+
+**接口地址**: `https://api.nytimes.com/svc/search/v2/articlesearch.json`
+
+**测试脚本**:
+```python
+# test_nytimes.py
+import requests
+import os
+
+def search_nytimes(api_key, query):
+    """搜索纽约时报文章"""
+    url = "https://api.nytimes.com/svc/search/v2/articlesearch.json"
+    
+    params = {
+        "q": query,
+        "api-key": api_key
+    }
+    
+    response = requests.get(url, params=params, timeout=10)
+    data = response.json()
+    
+    articles = data['response']['docs']
+    
+    print(f"找到 {data['response']['meta']['hits']} 篇文章")
+    print(f"\n前{len(articles)}篇:")
+    
+    for i, article in enumerate(articles, 1):
+        print(f"\n{i}. {article['headline']['main']}")
+        print(f"   作者: {', '.join(article['byline']['person'][0]['firstname'] if article['byline']['person'] else 'N/A')}")
+        print(f"   时间: {article['pub_date']}")
+        print(f"   URL: {article['web_url']}")
+        print(f"   摘要: {article['snippet']}")
+    
+    return data
+
+api_key = os.getenv("NYTIMES_API_KEY", "your_key_here")
+search_nytimes(api_key, "technology")
+```
+
+**申请步骤**:
+1. 访问 https://developer.nytimes.com/
+2. 注册账号
+3. 创建应用
+4. 获取API Key
+5. 免费额度：每天1,000次
+
+---
+
+## 第三优先级：开源项目
+
+### 7. stock-mcp ⭐⭐⭐⭐⭐
+
+#### 基本信息
+- **项目来源**: GitHub开源项目
 - **GitHub**: https://github.com/huweihua123/stock-mcp
-- **是否免费**: ✅ 完全免费（使用AkShare、BaoStock等免费数据源）
-- **用途**: A股、美股、港股金融数据，支持深度研究
+- **是否免费**: ✅ 完全免费
+- **需要Token**: ❌ 不需要（使用免费数据源）
+- **用途**: A股、美股、港股金融数据
+- **可靠性**: ⭐⭐⭐⭐（开源项目，社区维护）
 
 #### 7.1 安装与配置
 
@@ -943,33 +678,15 @@ conda activate stock-mcp
 pip install -r requirements.txt
 ```
 
-**配置.env**（可选，无配置使用免费数据源）:
+**启动HTTP服务**:
 ```bash
-# 可选：Tushare A股数据
-TUSHARE_ENABLED=False
-TUSHARE_TOKEN=your_token
-
-# 可选：Finnhub 美股数据
-FINNHUB_ENABLED=False
-FINNHUB_API_KEY=your_key
-
-# 可选：阿里百炼AI
-DASHSCOPE_API_KEY=your_key
-```
-
-**启动服务器**:
-```bash
-# HTTP模式
 export MCP_TRANSPORT=streamable-http
 python -m uvicorn src.server.app:app --host 0.0.0.0 --port 9898
-
-# STDIO模式
-python -m src.server.app
 ```
 
-#### 7.2 核心工具
+#### 7.2 使用工具
 
-##### 工具1: `perform_deep_research` - 深度研究
+**工具1: perform_deep_research - 深度研究**
 
 **输入参数**:
 ```json
@@ -984,10 +701,10 @@ python -m src.server.app
 # test_stock_mcp.py
 import requests
 
-client = requests.Session()
-base_url = "http://localhost:9898"
-
 def call_tool(tool_name, arguments):
+    """调用stock-mcp工具"""
+    url = "http://localhost:9898/mcp"
+    
     payload = {
         "jsonrpc": "2.0",
         "id": 1,
@@ -998,10 +715,10 @@ def call_tool(tool_name, arguments):
         }
     }
     
-    response = client.post(f"{base_url}/mcp", json=payload)
+    response = requests.post(url, json=payload, timeout=10)
     return response.json()
 
-# 深度研究苹果
+# 深度研究苹果股票
 result = call_tool("perform_deep_research", {
     "symbol": "AAPL",
     "include_news": True
@@ -1011,54 +728,68 @@ print("深度研究结果:")
 print(json.dumps(result, indent=2, ensure_ascii=False))
 ```
 
-**测试输出示例**:
-```json
-{
-  "result": {
-    "symbol": "AAPL",
-    "current_price": 175.50,
-    "price_change": 2.30,
-    "price_change_percent": 1.33,
-    "historical_data": {
-      "30_day_trend": "上涨",
-      "high": 180.00,
-      "low": 170.00
-    },
-    "fundamentals": {
-      "market_cap": "2.8T",
-      "pe_ratio": 28.5,
-      "dividend_yield": "0.5%",
-      "revenue": "394.3B"
-    },
-    "news": [
-      {
-        "title": "Apple launches new product",
-        "date": "2024-03-04",
-        "sentiment": "positive",
-        "source": "Reuters"
-      }
-    ]
-  }
-}
+**数据来源**:
+- A股: AkShare、BaoStock（完全免费）
+- 美股: Yahoo Finance（免费）
+- 港股: 同花顺（免费）
+
+---
+
+### 8. dailyhot-api ⭐⭐⭐⭐
+
+#### 基本信息
+- **项目来源**: GitHub开源项目（RSSHub生态）
+- **GitHub**: https://github.com/DIYgod/RSSHub
+- **是否免费**: ✅ 完全免费
+- **需要Token**: ❌ 不需要
+- **用途**: 聚合知乎、微博、抖音、B站等热榜
+- **可靠性**: ⭐⭐⭐⭐（开源项目，活跃维护）
+
+#### 8.1 使用公开实例
+
+**公开实例**: https://rsshub.app
+
+**接口示例**:
+```bash
+# 知乎热榜
+curl "https://rsshub.app/zhihu/hotlist.json"
+
+# 微博热搜
+curl "https://rsshub.app/weibo/search/hot.json"
+
+# 抖音热点
+curl "https://rsshub.app/douyin/trending.json"
+
+# B站热门
+curl "https://rsshub.app/bilibili/ranking/0/3.json"
 ```
-
-##### 工具2: `get_market_report` - 市场报告
-
-**输入参数**: 无
 
 **测试脚本**:
 ```python
-result = call_tool("get_market_report", {})
+# test_rsshub.py
+import requests
 
-print("市场报告:")
-print(f"市场状态: {result['result']['market_status']}")
-print(f"指数点位: {result['result']['indices']}")
-print(f"涨跌统计: {result['result']['statistics']}")
+def get_zhihu_hot():
+    """获取知乎热榜"""
+    url = "https://rsshub.app/zhihu/hotlist.json"
+    
+    response = requests.get(url, timeout=10)
+    data = response.json()
+    
+    print("知乎热榜:")
+    for i, item in enumerate(data['data'][:10], 1):
+        print(f"{i}. {item['title']}")
+        print(f"   热度: {item.get('score', 'N/A')}")
+        print(f"   URL: {item['url']}")
+    
+    return data
+
+get_zhihu_hot()
 ```
 
 ---
 
-## 三、测试脚本集合
+## 测试脚本集合
 
 ### 综合测试脚本
 
@@ -1067,213 +798,159 @@ print(f"涨跌统计: {result['result']['statistics']}")
 ```python
 #!/usr/bin/env python3
 """
-免费数据源API与MCP工具综合测试脚本
+免费数据源API综合测试脚本
+优先级：官方平台 > 无Token > 开源项目
 """
 import requests
 import json
-import time
+import os
 from datetime import datetime
 
-class DataAPITester:
+class APITester:
     def __init__(self):
         self.results = {}
     
-    def test_alapi_weibo(self, token):
-        """测试ALAPI微博热搜"""
-        print("\n[1] 测试 ALAPI 微博热搜...")
+    def test_hackernews(self):
+        """测试Hacker News API（官方、免费、无Token）"""
+        print("\n[1] 测试 Hacker News API...")
         try:
-            url = "https://v2.alapi.cn/api/new/wbHot"
-            params = {"token": token}
-            
-            response = requests.get(url, params=params, timeout=10)
-            data = response.json()
-            
-            if data['code'] == 200:
-                print(f"✓ 成功获取 {len(data['data'])} 条热搜")
-                print(f"  示例: {data['data'][0]['hotword']} (热度: {data['data'][0]['hotwordnum']})")
-                self.results['alapi_weibo'] = 'success'
-            else:
-                print(f"✗ 失败: {data['msg']}")
-                self.results['alapi_weibo'] = 'failed'
-        except Exception as e:
-            print(f"✗ 错误: {e}")
-            self.results['alapi_weibo'] = 'error'
-    
-    def test_yi18_list(self):
-        """测试Yi18热词列表"""
-        print("\n[2] 测试 Yi18 热词列表...")
-        try:
-            url = "http://api.yi18.net/top/list"
-            
+            # 获取热门故事
+            url = "https://hacker-news.firebaseio.com/v0/topstories.json"
             response = requests.get(url, timeout=10)
+            story_ids = response.json()
+            
+            # 获取第一个故事
+            story_url = f"https://hacker-news.firebaseio.com/v0/item/{story_ids[0]}.json"
+            story = requests.get(story_url, timeout=10).json()
+            
+            print(f"✓ 成功")
+            print(f"  标题: {story['title']}")
+            print(f"  分数: {story['score']}")
+            print(f"  来源: 官方API，无需Token")
+            self.results['hackernews'] = 'success'
+            
+        except Exception as e:
+            print(f"✗ 失败: {e}")
+            self.results['hackernews'] = 'failed'
+    
+    def test_reddit_json(self):
+        """测试Reddit JSON Hack（官方、免费、无Token）"""
+        print("\n[2] 测试 Reddit JSON...")
+        try:
+            url = "https://www.reddit.com/r/Python/hot.json?limit=5"
+            headers = {"User-Agent": "Mozilla/5.0"}
+            
+            response = requests.get(url, headers=headers, timeout=10)
             data = response.json()
             
-            if 'yi18' in data:
-                print(f"✓ 成功获取 {len(data['yi18'])} 个热词")
-                print(f"  示例: {data['yi18'][0]['title']}")
-                self.results['yi18_list'] = 'success'
-            else:
-                print("✗ 失败: 返回数据格式错误")
-                self.results['yi18_list'] = 'failed'
+            posts = data['data']['children']
+            
+            print(f"✓ 成功")
+            print(f"  获取帖子数: {len(posts)}")
+            print(f"  第一条: {posts[0]['data']['title']}")
+            print(f"  来源: 官方功能，无需Token")
+            self.results['reddit'] = 'success'
+            
         except Exception as e:
-            print(f"✗ 错误: {e}")
-            self.results['yi18_list'] = 'error'
+            print(f"✗ 失败: {e}")
+            self.results['reddit'] = 'failed'
     
-    def test_apihz_weibo(self, user_id, user_key):
-        """测试接口盒子微博热搜"""
-        print("\n[3] 测试 接口盒子 微博热搜...")
+    def test_worldnews(self, api_key):
+        """测试World News API（官方、免费需Token）"""
+        print("\n[3] 测试 World News API...")
+        if api_key == "your_key_here":
+            print("⊘ 跳过（未配置API Key）")
+            self.results['worldnews'] = 'skipped'
+            return
+        
         try:
-            url = "https://api.apihz.cn/v1/weibo/hotrising"
+            url = "https://api.worldnewsapi.com/search-news"
             params = {
-                "id": user_id,
-                "key": user_key,
-                "format": "json"
+                "api-key": api_key,
+                "text": "technology",
+                "number": 3
             }
             
             response = requests.get(url, params=params, timeout=10)
             data = response.json()
             
-            if data['code'] == 200:
-                print(f"✓ 成功获取 {len(data['data'])} 条上升热点")
-                print(f"  示例: {data['data'][0]['keyword']} (热度: {data['data'][0]['heat']})")
-                self.results['apihz_weibo'] = 'success'
-            else:
-                print(f"✗ 失败: {data['msg']}")
-                self.results['apihz_weibo'] = 'failed'
+            print(f"✓ 成功")
+            print(f"  新闻数: {len(data['news'])}")
+            print(f"  第一条: {data['news'][0]['title']}")
+            print(f"  来源: 官方API，免费额度150次/天")
+            self.results['worldnews'] = 'success'
+            
         except Exception as e:
-            print(f"✗ 错误: {e}")
-            self.results['apihz_weibo'] = 'error'
+            print(f"✗ 失败: {e}")
+            self.results['worldnews'] = 'failed'
     
-    def test_world_news_mcp(self, api_key):
-        """测试World News API MCP"""
-        print("\n[4] 测试 World News API MCP...")
+    def test_alpha_vantage(self, api_key):
+        """测试Alpha Vantage（官方、免费需Token）"""
+        print("\n[4] 测试 Alpha Vantage...")
+        if api_key == "your_key_here":
+            print("⊘ 跳过（未配置API Key）")
+            self.results['alphavantage'] = 'skipped'
+            return
+        
         try:
-            url = f"https://mcp.alphavantage.co/mcp?apikey={api_key}"
-            payload = {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "tools/list",
-                "params": {}
+            url = "https://www.alphavantage.co/query"
+            params = {
+                "function": "GLOBAL_QUOTE",
+                "symbol": "AAPL",
+                "apikey": api_key
             }
             
-            response = requests.post(url, json=payload, timeout=10)
+            response = requests.get(url, params=params, timeout=10)
             data = response.json()
             
-            if 'result' in data:
-                print(f"✓ MCP服务器连接成功")
-                print(f"  可用工具数: {len(data['result'].get('tools', []))}")
-                self.results['world_news_mcp'] = 'success'
-            else:
-                print("✗ 失败: 无法获取工具列表")
-                self.results['world_news_mcp'] = 'failed'
+            quote = data.get('Global Quote', {})
+            
+            print(f"✓ 成功")
+            print(f"  AAPL价格: ${quote.get('05. price', 'N/A')}")
+            print(f"  来源: 官方API，免费额度500次/天")
+            self.results['alphavantage'] = 'success'
+            
         except Exception as e:
-            print(f"✗ 错误: {e}")
-            self.results['world_news_mcp'] = 'error'
-    
-    def test_alpha_vantage_mcp(self, api_key):
-        """测试Alpha Vantage MCP"""
-        print("\n[5] 测试 Alpha Vantage MCP...")
-        try:
-            url = f"https://mcp.alphavantage.co/mcp?apikey={api_key}"
-            payload = {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "tools/call",
-                "params": {
-                    "name": "TOOL_CALL",
-                    "arguments": {
-                        "tool_name": "GLOBAL_QUOTE",
-                        "arguments": {"symbol": "AAPL"}
-                    }
-                }
-            }
-            
-            response = requests.post(url, json=payload, timeout=10)
-            data = response.json()
-            
-            if 'result' in data:
-                print(f"✓ 成功获取AAPL股票数据")
-                quote = data['result'].get('Global Quote', {})
-                print(f"  价格: ${quote.get('05. price', 'N/A')}")
-                self.results['alpha_vantage_mcp'] = 'success'
-            else:
-                print("✗ 失败: 无法获取数据")
-                self.results['alpha_vantage_mcp'] = 'failed'
-        except Exception as e:
-            print(f"✗ 错误: {e}")
-            self.results['alpha_vantage_mcp'] = 'error'
-    
-    def test_stock_mcp(self, host="localhost", port=9898):
-        """测试stock-mcp"""
-        print("\n[6] 测试 stock-mcp...")
-        try:
-            url = f"http://{host}:{port}/mcp"
-            payload = {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "tools/call",
-                "params": {
-                    "name": "get_market_report",
-                    "arguments": {}
-                }
-            }
-            
-            response = requests.post(url, json=payload, timeout=10)
-            data = response.json()
-            
-            if 'result' in data:
-                print(f"✓ 成功获取市场报告")
-                self.results['stock_mcp'] = 'success'
-            else:
-                print("✗ 失败: 无法获取市场报告")
-                self.results['stock_mcp'] = 'failed'
-        except Exception as e:
-            print(f"✗ 错误: {e}")
-            self.results['stock_mcp'] = 'error'
+            print(f"✗ 失败: {e}")
+            self.results['alphavantage'] = 'failed'
     
     def generate_report(self):
         """生成测试报告"""
         print("\n" + "="*60)
-        print("测试报告汇总")
+        print("测试报告")
         print("="*60)
         
-        success_count = sum(1 for v in self.results.values() if v == 'success')
-        total_count = len(self.results)
-        
         for api_name, status in self.results.items():
-            status_icon = {
+            icon = {
                 'success': '✓',
                 'failed': '✗',
-                'error': '⚠'
+                'skipped': '⊘'
             }.get(status, '?')
             
-            print(f"{status_icon} {api_name:20s} - {status}")
+            print(f"{icon} {api_name:20s} - {status}")
         
-        print(f"\n成功率: {success_count}/{total_count} ({success_count/total_count*100:.1f}%)")
+        success = sum(1 for v in self.results.values() if v == 'success')
+        total = len(self.results)
+        
+        print(f"\n成功率: {success}/{total}")
         print("="*60)
 
 def main():
     print("="*60)
-    print("免费数据源API与MCP工具综合测试")
+    print("免费数据源API综合测试")
+    print("优先级: 官方平台 > 无Token > 开源项目")
     print(f"测试时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("="*60)
     
-    tester = DataAPITester()
+    tester = APITester()
     
-    # 配置API密钥（请替换为你的实际密钥）
-    ALAPI_TOKEN = "your_alapi_token"
-    APIHZ_ID = "your_apihz_id"
-    APIHZ_KEY = "your_apihz_key"
-    WORLD_NEWS_KEY = "your_worldnews_key"
-    ALPHA_VANTAGE_KEY = "your_alphavantage_key"
+    # 测试无需Token的API
+    tester.test_hackernews()
+    tester.test_reddit_json()
     
-    # 执行测试
-    tester.test_alapi_weibo(ALAPI_TOKEN)
-    tester.test_yi18_list()
-    tester.test_apihz_weibo(APIHZ_ID, APIHZ_KEY)
-    tester.test_world_news_mcp(WORLD_NEWS_KEY)
-    tester.test_alpha_vantage_mcp(ALPHA_VANTAGE_KEY)
-    tester.test_stock_mcp()
+    # 测试需要Token的API（从环境变量读取）
+    tester.test_worldnews(os.getenv("WORLD_NEWS_API_KEY", "your_key_here"))
+    tester.test_alpha_vantage(os.getenv("ALPHA_VANTAGE_KEY", "your_key_here"))
     
     # 生成报告
     tester.generate_report()
@@ -1285,217 +962,121 @@ if __name__ == "__main__":
 ### 运行测试
 
 ```bash
-# 安装依赖
+# 1. 安装依赖
 pip install requests
 
-# 运行测试
+# 2. 设置API密钥（可选）
+export WORLD_NEWS_API_KEY="your_key"
+export ALPHA_VANTAGE_KEY="your_key"
+
+# 3. 运行测试
 python test_all_apis.py
 ```
 
 ---
 
-## 四、集成建议
+## 集成建议
 
-### 方案对比表
+### 推荐方案
 
-| 方案 | 组合 | 优势 | 劣势 | 成本 | 适用场景 |
-|------|------|------|------|------|----------|
-| **方案1: 完全免费** | ALAPI + Yi18 + stock-mcp | 无需API Key | 调用限制，功能有限 | 免费 | 快速原型开发 |
-| **方案2: 功能完整** | World News + Alpha Vantage + stock-mcp | 数据质量高，支持情感分析 | 需注册 | 免费额度 | 生产环境 |
-| **方案3: 专业金融** | EODHD + Alpha Vantage + ALAPI | 数据最全面，支持期权 | 需付费订阅 | $19.99/月起 | 金融应用 |
-
-### 推荐使用场景
-
-#### 1. 舆情监控（国内）
-```python
-# 使用 ALAPI + Yi18
-- ALAPI: 获取微博热搜、今日热榜
-- Yi18: 获取热点关键词和事件
-- 优势: 实时性强，覆盖主流平台
+#### 方案A: 完全免费无需Token ⭐⭐⭐⭐⭐
 ```
-
-#### 2. 新闻情感分析（国际）
-```python
-# 使用 World News API MCP
-- 搜索全球新闻
-- 分析新闻情感
-- 按地理位置过滤
-- 优势: 支持多语言、多维度搜索
+Hacker News API + Reddit JSON + stock-mcp
 ```
+- **优势**: 完全免费，无需注册，开箱即用
+- **数据源**: 全部官方平台或开源项目
+- **适用**: 个人项目、原型开发、学习研究
 
-#### 3. 股票研究（美股）
-```python
-# 使用 Alpha Vantage MCP
-- 获取股票价格和基本面
-- 分析新闻情感
-- 计算技术指标
-- 优势: 免费额度充足，数据权威
+#### 方案B: 官方免费需Token ⭐⭐⭐⭐
 ```
-
-#### 4. A股分析（国内）
-```python
-# 使用 stock-mcp
-- 深度研究个股
-- 获取市场报告
-- 优势: 中文友好，完全免费
+World News API + Alpha Vantage + The Guardian
 ```
+- **优势**: 数据质量高，官方维护，稳定可靠
+- **成本**: 免费注册，额度充足
+- **适用**: 生产环境、商业应用
 
-### 最佳实践
+#### 方案C: 混合方案 ⭐⭐⭐⭐⭐
+```
+Hacker News + Reddit + World News API + stock-mcp
+```
+- **优势**: 兼顾免费和功能完整
+- **覆盖**: 技术新闻 + 社交媒体 + 全球新闻 + 金融数据
+- **适用**: 综合性应用
 
-#### 1. API Key管理
+### 不推荐方案
+
+❌ **第三方聚合API**（如ALAPI、Yi18、接口盒子）
+- 数据来源不明
+- 稳定性差
+- 需要付费
+- 可能违反平台ToS
+
+---
+
+## API密钥管理
+
+### 环境变量方式（推荐）
+
 ```bash
-# 使用环境变量
-export ALAPI_TOKEN="your_token"
-export WORLD_NEWS_API_KEY="your_key"
-
-# 或使用.env文件
-# .env
-ALAPI_TOKEN=your_token
-WORLD_NEWS_API_KEY=your_key
+# .env文件
+WORLD_NEWS_API_KEY=your_worldnews_key
+ALPHA_VANTAGE_KEY=your_alphavantage_key
+GUARDIAN_API_KEY=your_guardian_key
+NYTIMES_API_KEY=your_nytimes_key
 ```
 
-#### 2. 错误处理与重试
 ```python
-import time
-from functools import wraps
+# Python代码
+import os
+from dotenv import load_dotenv
 
-def retry(max_attempts=3, delay=1):
-    def decorator(func):
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            for attempt in range(max_attempts):
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    if attempt == max_attempts - 1:
-                        raise
-                    time.sleep(delay * (attempt + 1))
-        return wrapper
-    return decorator
+load_dotenv()
 
-@retry(max_attempts=3, delay=2)
-def fetch_news_with_retry(keyword):
-    # API调用代码
-    pass
+api_key = os.getenv('WORLD_NEWS_API_KEY')
 ```
 
-#### 3. 数据缓存
-```python
-import json
-from datetime import datetime, timedelta
+### 安全建议
 
-class DataCache:
-    def __init__(self, ttl_seconds=3600):
-        self.cache = {}
-        self.ttl = ttl_seconds
-    
-    def get(self, key):
-        if key in self.cache:
-            data, timestamp = self.cache[key]
-            if datetime.now() - timestamp < timedelta(seconds=self.ttl):
-                return data
-        return None
-    
-    def set(self, key, data):
-        self.cache[key] = (data, datetime.now())
-
-cache = DataCache(ttl_seconds=300)  # 5分钟缓存
-
-def get_cached_hot_search():
-    cached = cache.get('weibo_hot')
-    if cached:
-        return cached
-    
-    data = fetch_weibo_hot_search()
-    cache.set('weibo_hot', data)
-    return data
-```
-
-#### 4. 降级策略
-```python
-def get_news_with_fallback(keyword):
-    # 主数据源
-    try:
-        return fetch_from_world_news(keyword)
-    except:
-        pass
-    
-    # 降级到备选数据源
-    try:
-        return fetch_from_alapi(keyword)
-    except:
-        pass
-    
-    # 最后降级到缓存
-    return get_from_cache(keyword)
-```
+1. ✅ 使用环境变量存储API密钥
+2. ✅ 不要在代码中硬编码
+3. ✅ 不要提交到Git仓库
+4. ✅ 使用`.gitignore`排除`.env`文件
 
 ---
 
-## 五、附录
+## 常见问题
 
-### A. 常用国家代码（ISO 3166）
+### Q1: 为什么要优先使用官方API？
+**A**: 官方API数据来源可靠、稳定，不会因为第三方平台关闭而失效。
 
-| 国家 | 代码 |
-|------|------|
-| 中国 | cn |
-| 美国 | us |
-| 英国 | gb |
-| 日本 | jp |
-| 德国 | de |
-| 法国 | fr |
-| 印度 | in |
-| 澳大利亚 | au |
+### Q2: Reddit JSON Hack合法吗？
+**A**: 这是Reddit官方支持的公开功能，但要注意频率限制，避免被封IP。
 
-### B. 常用语言代码（ISO 639）
+### Q3: 免费额度够用吗？
+**A**: 
+- World News API: 150次/天（足够测试和个人使用）
+- Alpha Vantage: 500次/天（足够大多数应用）
+- The Guardian: 12,000次/天（非常充足）
 
-| 语言 | 代码 |
-|------|------|
-| 中文 | zh |
-| 英文 | en |
-| 西班牙文 | es |
-| 法文 | fr |
-| 德文 | de |
-| 日文 | ja |
-| 韩文 | ko |
-| 俄文 | ru |
-
-### C. 新闻分类
-
-| 分类 | 英文 |
-|------|------|
-| 政治 | politics |
-| 商业 | business |
-| 科技 | technology |
-| 体育 | sports |
-| 娱乐 | entertainment |
-| 健康 | health |
-| 科学 | science |
-| 世界 | world |
-
-### D. 股票交易所代码
-
-| 交易所 | 代码 |
-|--------|------|
-| 纽约证券交易所 | NYSE |
-| 纳斯达克 | NASDAQ |
-| 上海证券交易所 | SSE |
-| 深圳证券交易所 | SZSE |
-| 香港交易所 | HKEX |
-| 东京证券交易所 | TSE |
+### Q4: stock-mcp的数据可靠吗？
+**A**: stock-mcp使用的是AkShare、Yahoo Finance等知名免费数据源，数据质量有保障。
 
 ---
 
-## 六、更新日志
+## 更新日志
+
+### v2.0 (2024-03-04)
+- ✅ 重新整理API优先级：官方平台 > 无Token > 开源项目
+- ✅ 删除不可靠的第三方聚合API
+- ✅ 明确标注每个API的来源和可靠性
+- ✅ 添加官方平台说明
+- ✅ 优化测试脚本
 
 ### v1.0 (2024-03-04)
 - 初始版本
-- 收录7个数据源
-- 包含完整测试脚本
-- 添加最佳实践指南
 
 ---
 
-**文档维护者**: Multi-User Agent Team  
-**反馈邮箱**: support@example.com  
-**GitHub Issues**: https://github.com/your-org/mutil-user-agent-backend/issues
+**文档维护**: Multi-User Agent Team  
+**最后更新**: 2024-03-04  
+**反馈**: GitHub Issues
