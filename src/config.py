@@ -69,6 +69,11 @@ class Settings(BaseSettings):
 
     LLM_MODE: int
 
+    # Mem0 Qdrant 向量数据库配置
+    MEM0_COLLECTION_NAME: str = "multi_agent_memory"
+    MEM0_QDRANT_HOST: str = "localhost"
+    MEM0_QDRANT_PORT: int = 6333
+
     @field_validator("IS_LANGFUSE", mode="before")
     def parse_is_langfuse(cls, v):
         return int(v)

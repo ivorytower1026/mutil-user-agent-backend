@@ -1057,6 +1057,8 @@ async def activate_llm_config(
         Activated LLM configuration
     """
     from src.llm_manager import get_llm_manager
+    from src.memory_manager import get_memory_manager
+    from src.database import SessionLocal
     from api.models import LlmConfigResponse
 
     manager = get_llm_manager()
@@ -1065,6 +1067,18 @@ async def activate_llm_config(
 
     if not config:
         raise HTTPException(status_code=404, detail="LLM config not found")
+
+    # Reinitialize MemoryManager if big or embedding role config changes
+    if config.role in ["big", "embedding"]:
+        try:
+            memory_manager = get_memory_manager()
+            with SessionLocal() as db_session:
+                memory_manager.reinit(db_session)
+            logger.info(
+                f"[Admin] MemoryManager reinitialized due to {config.role} config activation"
+            )
+        except Exception as e:
+            logger.warning(f"[Admin] Failed to reinitialize MemoryManager: {e}")
 
     return LlmConfigResponse(
         id=config.id,

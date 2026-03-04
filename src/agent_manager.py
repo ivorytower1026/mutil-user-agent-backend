@@ -16,6 +16,7 @@ from src.utils.get_logger import get_logger
 from src.utils.langfuse_monitor import init_langfuse
 from src.mcp_manager import get_mcp_manager
 from src.agent_config_manager import get_agent_config_manager
+from src.memory_manager import get_memory_manager
 
 from psycopg_pool import AsyncConnectionPool
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
@@ -28,9 +29,90 @@ from src.agent_utils.stream import AgentStreamRunner
 from src.agent_utils.resume_builder import ResumeCommandBuilder
 from src.utils.inject_hint import inject_hint
 from datetime import datetime
+
 logger = get_logger("main-agent")
 
 AUTO_APPROVE_TOOLS = {"execute", "write_file", "edit_file"}
+
+MEMORY_SYSTEM_PROMPT = """
+# 记忆系统使用指南
+
+你拥有一个智能记忆系统，可以保存和检索信息。合理使用记忆系统能让你更好地服务用户。
+
+## 何时保存记忆
+
+保存以下信息为长期记忆，这些信息会跨会话保留：
+
+1. **用户偏好**
+   - 喜欢的编程语言、框架、工具
+   - 代码风格偏好（缩进、命名规范等）
+   - 工作习惯（喜欢详细解释还是简洁输出）
+
+2. **用户背景**
+   - 职业角色（前端/后端/全栈/数据科学家等）
+   - 技术栈（Spring、Django、React、Vue 等）
+   - 项目领域（电商、金融、AI、物联网等）
+
+3. **重要事实**
+   - 项目配置信息（数据库连接、API 端点）
+   - 团队约定（Git 分支策略、代码审查流程）
+   - 业务规则（折扣计算、用户权限）
+
+示例：
+- 用户说"我喜欢用 TypeScript" → save_memory("用户偏好使用 TypeScript", {"category": "preference"})
+- 用户说"我是后端工程师，主要用 Java" → save_memory("用户是后端工程师，技术栈为 Java", {"category": "background"})
+
+## 何时检索记忆
+
+在以下情况下，主动调用 search_memory 检索相关信息：
+
+1. **用户询问过往信息**
+   - "我之前说过我喜欢什么语言？"
+   - "我的技术栈是什么？"
+
+2. **需要上下文做决策**
+   - 选择技术方案时，参考用户偏好
+   - 编写代码时，遵循用户的代码风格
+   - 解释概念时，根据用户背景调整深度
+
+示例：
+- 用户问"我应该用哪个框架？" → search_memory("技术栈 框架偏好")
+- 用户说"继续" → search_memory("任务进度 当前任务")
+
+## 记忆管理原则
+
+1. **质量优于数量**
+   - 只保存真正有价值的信息
+   - 避免保存临时性、易变的信息
+
+2. **及时更新**
+   - 当用户纠正信息时，保存新版本
+   - Mem0 会自动处理冲突检测和更新
+
+3. **主动检索**
+   - 不要等用户提醒才去查记忆
+   - 在需要决策时，主动参考用户偏好
+
+## 注意事项
+
+1. **隐私保护**
+   - 不要保存敏感信息（密码、密钥、个人隐私）
+   - 如果不确定，先询问用户
+
+2. **避免冗余**
+   - 不要重复保存相同信息
+   - Mem0 会自动去重，但你应该有意识避免
+
+3. **上下文相关性**
+   - 保存时添加 metadata，方便后续检索
+   - 使用有意义的标签（category、task、domain 等）
+
+4. **性能考虑**
+   - 不要过度频繁调用记忆工具
+   - 检索时设置合理的 limit（默认 5）
+
+注：会话级短期记忆（如当前任务进度、临时计算结果）由 LangGraph 自动管理，无需手动保存。
+"""
 
 DEFAULT_SYSTEM_PROMPT = f"""
 用户的工作目录在/workspace中，若无明确要求，请在/workspace目录【及子目录】下执行操作,
@@ -38,6 +120,8 @@ DEFAULT_SYSTEM_PROMPT = f"""
 优先尝试使用已有的skill完成任务。
 你有子agent时，优先尝试使用子agent处理专门的任务。
 现在的时间是{datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+
+{MEMORY_SYSTEM_PROMPT}
 """
 
 FIX_PROMPT = f"""现在的时间是{datetime.now().strftime("%Y-%m-%d %H:%M:%S")}"""
@@ -57,6 +141,7 @@ class AgentManager:
         self.session_manager: SessionManager | None = None
         self.mcp_manager = get_mcp_manager()
         self.config_manager = get_agent_config_manager()
+        self.memory_manager = get_memory_manager()
 
     async def init(self):
         await self.pool.open()
@@ -67,6 +152,7 @@ class AgentManager:
 
         with SessionLocal() as db:
             self.config_manager.load_configs(db)
+            self.memory_manager.init(db)
 
         await self._build_agent()
 
@@ -89,6 +175,10 @@ class AgentManager:
             mcp_tools.extend(tools)
         mcp_tools.append(self._create_ask_user_tool())
 
+        # Add memory tools
+        memory_tools = self.memory_manager.create_tools()
+        all_tools = mcp_tools + memory_tools
+
         skills_paths = self._build_skills_paths(main_config.skills or [])
 
         system_prompt = DEFAULT_SYSTEM_PROMPT + main_config.system_prompt
@@ -99,7 +189,7 @@ class AgentManager:
                 self._get_thread_id(runtime) or "default"
             ),
             checkpointer=self.checkpointer,
-            tools=mcp_tools,
+            tools=all_tools,
             interrupt_on={
                 "execute": True,
                 "write_file": True,
