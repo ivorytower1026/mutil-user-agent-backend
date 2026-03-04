@@ -177,12 +177,15 @@ class SessionManager:
                     logger.info(f"[get_history]   skipping non-subagent tool message")
                     continue
 
-            if subagent_stack and role in ["assistant", "tool"] and not formatted_msg.get("in_subagent"):
+            if subagent_stack and role in ["assistant", "tool"] and not formatted_msg.get("in_subagent") and not formatted_msg.get("is_subagent_call"):
                 formatted_msg["in_subagent"] = True
                 formatted_msg["subagent_name"] = subagent_stack[-1][1]
                 logger.info(f"[get_history] msg {i}: marked as in_subagent")
 
-            if content or formatted_msg.get("toolCalls") or formatted_msg.get("is_subagent_call"):
+            if formatted_msg.get("is_subagent_call"):
+                continue
+
+            if content or formatted_msg.get("toolCalls"):
                 logger.info(f"[get_history] msg {i}: appending message, in_subagent={formatted_msg.get('in_subagent')}, subagent_name={formatted_msg.get('subagent_name')}")
                 formatted_messages.append(formatted_msg)
 
