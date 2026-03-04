@@ -120,11 +120,10 @@ DEFAULT_SYSTEM_PROMPT = f"""
 优先尝试使用已有的skill完成任务。
 你有子agent时，优先尝试使用子agent处理专门的任务。
 现在的时间是{datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
-
-{MEMORY_SYSTEM_PROMPT}
 """
 
 FIX_PROMPT = f"""现在的时间是{datetime.now().strftime("%Y-%m-%d %H:%M:%S")}"""
+
 
 class AgentManager:
     def __init__(self):
@@ -152,7 +151,8 @@ class AgentManager:
 
         with SessionLocal() as db:
             self.config_manager.load_configs(db)
-            self.memory_manager.init(db)
+            if settings.MEMORY_ENABLED:
+                self.memory_manager.init(db)
 
         await self._build_agent()
 
@@ -175,13 +175,20 @@ class AgentManager:
             mcp_tools.extend(tools)
         mcp_tools.append(self._create_ask_user_tool())
 
-        # Add memory tools
-        memory_tools = self.memory_manager.create_tools()
-        all_tools = mcp_tools + memory_tools
+        # Add memory tools if enabled
+        if settings.MEMORY_ENABLED:
+            memory_tools = self.memory_manager.create_tools()
+            all_tools = mcp_tools + memory_tools
+        else:
+            all_tools = mcp_tools
 
         skills_paths = self._build_skills_paths(main_config.skills or [])
 
-        system_prompt = DEFAULT_SYSTEM_PROMPT + main_config.system_prompt
+        # Build system prompt
+        system_prompt = DEFAULT_SYSTEM_PROMPT
+        if settings.MEMORY_ENABLED:
+            system_prompt += MEMORY_SYSTEM_PROMPT
+        system_prompt += main_config.system_prompt
 
         self.compiled_agent = create_deep_agent(
             model=big_llm,
