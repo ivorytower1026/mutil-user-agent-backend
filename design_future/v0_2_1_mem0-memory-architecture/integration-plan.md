@@ -1,5 +1,7 @@
 # Mem0 记忆系统集成方案
 
+> **重要说明**: 本方案仅实现User级长期记忆。Session级短期记忆由LangGraph Checkpointer自动管理,框架已内置完整支持。
+
 ## 一、架构概述
 
 ### 1.1 核心架构
@@ -20,10 +22,10 @@
 └─────────────────────────────────────────┘
                 ↓
 ┌─────────────────────────────────────────┐
-│       Mem0 Memory (分层存储)             │
+│       Mem0 Memory (长期记忆)             │
 │  - User 级（长期记忆）                    │
-│  - Session 级（短期记忆）                 │
 │  - Vector Store (Qdrant)                │
+│  - Session级由LangGraph管理              │
 └─────────────────────────────────────────┘
 ```
 
@@ -45,7 +47,7 @@ backend/
 
 **特点**：
 - 生命周期：永久（除非用户删除）
-- 使用：只用 `user_id`，不指定 `session_id`
+- 使用：只用 `user_id`
 - 跨会话共享
 - mem0 自动管理时间戳，检索时按相关性排序
 
@@ -59,33 +61,23 @@ backend/
 ```python
 save_memory(
     content="用户偏好使用 Python 进行数据分析，常用 pandas 和 matplotlib",
-    memory_type="user",
     metadata={"category": "preference", "domain": "data_analysis"}
 )
 ```
 
-### 2.2 短期记忆（Session 级）
+### 2.2 会话记忆（Session 级 - LangGraph管理）
+
+**说明**：由LangGraph Checkpointer自动管理，无需Mem0实现
 
 **特点**：
 - 生命周期：单个会话（thread）
-- 使用：`thread_id` 作为 `session_id`
-- Agent 自行管理（何时保存、何时清理）
-- 会话结束后可选择清理
+- 管理：LangGraph自动保存/恢复
+- 用途：对话历史、工具调用记录、中断恢复
 
-**适用场景**：
-- 任务进度状态
-- 临时计算结果
-- 多步骤任务的中间状态
-- Debug 信息
-
-**示例**：
-```python
-save_memory(
-    content="正在处理用户上传的 data.csv 文件，已解析 1000 行",
-    memory_type="session",
-    metadata={"task": "data_processing", "progress": "50%"}
-)
-```
+**实现方式**：
+- 已在 `AgentManager` 中使用 `AsyncPostgresSaver`
+- 每个thread的状态自动持久化
+- 中断后可从checkpoint恢复
 
 ### 2.3 近期记忆
 
@@ -100,9 +92,9 @@ save_memory(
 
 | 工具名 | 功能 | 参数 | 返回值 |
 |--------|------|------|--------|
-| `save_memory` | 保存记忆 | content, memory_type, metadata | 保存结果 |
-| `search_memory` | 检索记忆 | query, memory_type, limit | 记忆列表 |
-| `list_memories` | 列出记忆 | memory_type, limit | 记忆列表 |
+| `save_memory` | 保存记忆 | content, metadata | 保存结果 |
+| `search_memory` | 检索记忆 | query, limit | 记忆列表 |
+| `list_memories` | 列出记忆 | limit | 记忆列表 |
 | `delete_memory` | 删除记忆 | memory_id | 成功/失败 |
 
 ### 3.2 save_memory 工具
@@ -111,13 +103,11 @@ save_memory(
 
 **参数**：
 - `content`: str - 要保存的内容（必需）
-- `memory_type`: str - "session" 或 "user"（必需）
 - `metadata`: dict | None - 元数据（可选）
 
 **行为**：
-1. Agent 判断信息是否值得保存
-2. 选择记忆类型（短期/长期）
-3. Mem0 自动进行：
+1. Agent 判断信息是否值得保存为长期记忆
+2. Mem0 自动进行：
    - LLM 提取关键信息
    - 冲突检测（是否需要更新已有记忆）
    - 决策处理（ADD/UPDATE/DELETE/NONE）
@@ -129,34 +119,28 @@ def _create_save_memory_tool(self) -> BaseTool:
     """创建保存记忆工具"""
     def save_memory(
         content: str,
-        memory_type: str,
         metadata: dict | None = None,
         state: Annotated[dict, InjectedState] = None,
     ) -> str:
         """
-        保存信息到记忆系统
+        保存信息到长期记忆系统
         
         Args:
             content: 要保存的内容
-            memory_type: "session"（短期）或 "user"（长期）
             metadata: 可选的元数据
             state: 注入的状态（自动获取）
         
         Returns:
             保存结果
         """
-        # 从 state 中提取 user_id 和 thread_id
-        user_id, thread_id = self._extract_context(state)
+        # 从 state 中提取 user_id
+        user_id = self._extract_user_id(state)
         
         try:
             kwargs = {
                 "content": content,
                 "user_id": user_id,
             }
-            
-            # 短期记忆添加 session_id
-            if memory_type == "session":
-                kwargs["session_id"] = thread_id
             
             # 添加元数据
             if metadata:
@@ -166,7 +150,7 @@ def _create_save_memory_tool(self) -> BaseTool:
             result = self._memory_client.add(**kwargs)
             
             logger.info(
-                f"[MemoryManager] Saved {memory_type} memory: {content[:50]}"
+                f"[MemoryManager] Saved memory: {content[:50]}"
             )
             
             return f"记忆已保存: {result}"
@@ -177,21 +161,19 @@ def _create_save_memory_tool(self) -> BaseTool:
     
     return StructuredTool.from_function(
         name="save_memory",
-        description="""保存信息到记忆系统。
+        description="""保存信息到长期记忆系统。
 
-何时保存长期记忆 (memory_type="user"):
+何时保存长期记忆:
 - 用户明确表达的个人偏好（编程语言、框架、工具）
 - 用户的工作背景、技术栈
 - 重要的项目信息、配置
-
-何时保存短期记忆 (memory_type="session"):
-- 当前任务的进度状态
-- 临时计算结果、中间变量
-- 多步骤任务的上下文
+- 跨会话有价值的信息
 
 示例:
-- save_memory("用户喜欢使用 Python 做数据分析", "user", {"category": "preference"})
-- save_memory("已处理 1000 行数据", "session", {"task": "data_processing"})
+- save_memory("用户喜欢使用 Python 做数据分析", {"category": "preference"})
+- save_memory("用户是后端工程师，技术栈为 Java", {"category": "background"})
+
+注: 会话级短期记忆由LangGraph自动管理，无需手动保存
         """,
         func=save_memory,
     )
@@ -203,12 +185,11 @@ def _create_save_memory_tool(self) -> BaseTool:
 
 **参数**：
 - `query`: str - 查询内容（必需）
-- `memory_type`: str | None - "session" 或 "user"（可选，默认全部）
 - `limit`: int - 返回数量（默认 5）
 
 **行为**：
 1. 向量化查询
-2. 多层检索（User + Session）
+2. 向量检索（User级长期记忆）
 3. 按相关性排序返回（mem0 自动管理）
 
 **关键代码**：
@@ -217,7 +198,6 @@ def _create_search_memory_tool(self) -> BaseTool:
     """创建检索记忆工具"""
     def search_memory(
         query: str,
-        memory_type: str | None = None,
         limit: int = 5,
         state: Annotated[dict, InjectedState] = None,
     ) -> str:
@@ -226,27 +206,20 @@ def _create_search_memory_tool(self) -> BaseTool:
         
         Args:
             query: 查询内容
-            memory_type: "session"、"user" 或 None（全部）
             limit: 返回数量（默认 5）
             state: 注入的状态（自动获取）
         
         Returns:
             记忆列表（JSON 格式）
         """
-        user_id, thread_id = self._extract_context(state)
+        user_id = self._extract_user_id(state)
         
         try:
-            kwargs = {
-                "query": query,
-                "user_id": user_id,
-                "limit": limit,
-            }
-            
-            # 指定 session_id 检索短期记忆
-            if memory_type == "session":
-                kwargs["session_id"] = thread_id
-            
-            results = self._memory_client.search(**kwargs)
+            results = self._memory_client.search(
+                query=query,
+                user_id=user_id,
+                limit=limit,
+            )
             
             # 格式化返回
             memories = results.get("results", [])
@@ -279,7 +252,7 @@ def _create_search_memory_tool(self) -> BaseTool:
 
 示例:
 - search_memory("用户的编程语言偏好")
-- search_memory("当前任务进度", memory_type="session")
+- search_memory("技术栈")
         """,
         func=search_memory,
     )
@@ -290,18 +263,13 @@ def _create_search_memory_tool(self) -> BaseTool:
 **list_memories**: 列出用户的所有记忆
 ```python
 def list_memories(
-    memory_type: str | None = None,
     limit: int = 10,
     state: Annotated[dict, InjectedState] = None,
 ) -> str:
     """列出所有记忆"""
-    user_id, thread_id = self._extract_context(state)
+    user_id = self._extract_user_id(state)
     
-    kwargs = {"user_id": user_id, "limit": limit}
-    if memory_type == "session":
-        kwargs["session_id"] = thread_id
-    
-    results = self._memory_client.get_all(**kwargs)
+    results = self._memory_client.get_all(user_id=user_id, limit=limit)
     return json.dumps(results, ensure_ascii=False, indent=2)
 ```
 
@@ -312,7 +280,7 @@ def delete_memory(
     state: Annotated[dict, InjectedState] = None,
 ) -> str:
     """删除记忆"""
-    user_id, _ = self._extract_context(state)
+    user_id = self._extract_user_id(state)
     
     self._memory_client.delete(memory_id)
     return f"记忆 {memory_id} 已删除"
@@ -384,18 +352,18 @@ class MemoryManager:
         self._memory_client = Memory.from_config(config)
         logger.info("[MemoryManager] Initialized mem0 client")
     
-    def _extract_context(self, state: dict) -> tuple[str, str | None]:
-        """从 state 中提取 user_id 和 thread_id"""
+    def _extract_user_id(self, state: dict) -> str:
+        """从 state 中提取 user_id"""
         config = state.get("config", {})
         configurable = config.get("configurable", {})
         thread_id = configurable.get("thread_id")
         
         if not thread_id:
-            return "default", None
+            return "default"
         
         # thread_id 格式: {user_id}-{uuid}
         user_id = thread_id[:36] if len(thread_id) > 37 else "default"
-        return user_id, thread_id
+        return user_id
     
     def create_tools(self) -> list[BaseTool]:
         """创建记忆工具列表"""
@@ -420,9 +388,9 @@ def get_memory_manager() -> MemoryManager:
 
 ### 4.2 关键方法说明
 
-**_extract_context**: 从工具的 state 中提取上下文
+**_extract_user_id**: 从工具的 state 中提取用户ID
 - 输入: InjectedState 注入的 state 字典
-- 输出: (user_id, thread_id)
+- 输出: user_id
 - 逻辑: thread_id 格式为 `{user_id}-{uuid}`，取前 36 字符为 user_id
 
 **create_tools**: 创建 4 个记忆工具
@@ -444,8 +412,8 @@ MEMORY_SYSTEM_PROMPT = """
 
 ## 何时保存记忆
 
-### 长期记忆 (memory_type="user")
 保存以下信息为长期记忆，这些信息会跨会话保留：
+
 1. **用户偏好**
    - 喜欢的编程语言、框架、工具
    - 代码风格偏好（缩进、命名规范等）
@@ -462,24 +430,8 @@ MEMORY_SYSTEM_PROMPT = """
    - 业务规则（折扣计算、用户权限）
 
 示例：
-- 用户说"我喜欢用 TypeScript" → save_memory("用户偏好使用 TypeScript", "user", {"category": "preference"})
-- 用户说"我是后端工程师，主要用 Java" → save_memory("用户是后端工程师，技术栈为 Java", "user", {"category": "background"})
-
-### 短期记忆 (memory_type="session")
-保存以下信息为短期记忆，这些信息仅在当前会话有效：
-1. **任务状态**
-   - 当前任务的进度（"已处理 50/100 个文件"）
-   - 临时决策（"选择方案 A 而非方案 B"）
-   - 待办事项（"还需要处理异常情况"）
-
-2. **中间结果**
-   - 计算过程（"当前准确率 85%"）
-   - 调试信息（"错误发生在第 3 步"）
-   - 临时变量（"文件路径为 /workspace/data.csv"）
-
-示例：
-- 正在处理多步骤任务 → save_memory("已完成步骤 1/5: 数据清洗", "session", {"task": "pipeline", "step": 1})
-- 计算中间结果 → save_memory("临时结果: 模型准确率 0.85", "session", {"task": "ml_training"})
+- 用户说"我喜欢用 TypeScript" → save_memory("用户偏好使用 TypeScript", {"category": "preference"})
+- 用户说"我是后端工程师，主要用 Java" → save_memory("用户是后端工程师，技术栈为 Java", {"category": "background"})
 
 ## 何时检索记忆
 
@@ -488,16 +440,11 @@ MEMORY_SYSTEM_PROMPT = """
 1. **用户询问过往信息**
    - "我之前说过我喜欢什么语言？"
    - "我的技术栈是什么？"
-   - "上次我们做到哪了？"
 
 2. **需要上下文做决策**
    - 选择技术方案时，参考用户偏好
    - 编写代码时，遵循用户的代码风格
    - 解释概念时，根据用户背景调整深度
-
-3. **继续之前任务**
-   - 用户说"继续上次的工作"
-   - 需要了解之前的任务状态
 
 示例：
 - 用户问"我应该用哪个框架？" → search_memory("技术栈 框架偏好")
@@ -513,11 +460,7 @@ MEMORY_SYSTEM_PROMPT = """
    - 当用户纠正信息时，保存新版本
    - Mem0 会自动处理冲突检测和更新
 
-3. **合理分类**
-   - 长期记忆：跨会话有用的信息
-   - 短期记忆：仅当前会话有用的信息
-
-4. **主动检索**
+3. **主动检索**
    - 不要等用户提醒才去查记忆
    - 在需要决策时，主动参考用户偏好
 
@@ -538,6 +481,8 @@ MEMORY_SYSTEM_PROMPT = """
 4. **性能考虑**
    - 不要过度频繁调用记忆工具
    - 检索时设置合理的 limit（默认 5）
+
+注：会话级短期记忆（如当前任务进度、临时计算结果）由 LangGraph 自动管理，无需手动保存。
 """
 ```
 
@@ -704,7 +649,7 @@ MEM0_EMBEDDING_BASE_URL=http://192.168.110.44:8008/v1
 
 ### 9.1 工具上下文传递
 
-**问题**：工具函数无法直接访问 user_id 和 thread_id
+**问题**：工具函数无法直接访问 user_id
 
 **解决方案**：使用 `InjectedState`
 ```python
@@ -713,12 +658,11 @@ from typing import Annotated
 
 def save_memory(
     content: str,
-    memory_type: str,
     metadata: dict | None = None,
     state: Annotated[dict, InjectedState] = None,  # 自动注入
 ) -> str:
-    # 从 state 提取上下文
-    user_id, thread_id = extract_context(state)
+    # 从 state 提取 user_id
+    user_id = extract_user_id(state)
     # ...
 ```
 
@@ -729,7 +673,7 @@ def save_memory(
 **解决方案**：
 - Mem0 内置冲突检测，会自动判断 ADD/UPDATE/DELETE
 - 在 System Prompt 中引导 Agent 直接保存新信息即可
-- 示例：用户说"其实我喜欢 JavaScript" → save_memory("用户偏好 JavaScript", "user")
+- 示例：用户说"其实我喜欢 JavaScript" → save_memory("用户偏好 JavaScript")
 
 ### 9.3 记忆检索相关性
 
@@ -741,12 +685,12 @@ def save_memory(
 3. 检索时使用精确的查询词
 4. 默认 limit=5，平衡召回率和性能
 
-### 9.4 近期记忆实现
+### 9.4 会话记忆管理
 
-**策略**：利用 mem0 自动管理
-- 长期记忆自带时间戳
-- 检索时 mem0 自动按相关性排序（包含时间因素）
-- 无需额外逻辑，mem0 内部已优化
+**策略**：完全依赖LangGraph
+- LangGraph Checkpointer自动保存对话历史和状态
+- 中断恢复由checkpointer自动处理
+- 无需Mem0参与会话级记忆
 
 ## 十、测试计划
 
@@ -758,15 +702,9 @@ def save_memory(
 def test_save_user_memory():
     """测试保存长期记忆"""
     # 1. 创建 MemoryManager
-    # 2. 调用 save_memory (memory_type="user")
+    # 2. 调用 save_memory
     # 3. 验证保存成功
     # 4. 调用 search_memory 验证能检索到
-
-def test_save_session_memory():
-    """测试保存短期记忆"""
-    # 1. 调用 save_memory (memory_type="session")
-    # 2. 验证保存成功
-    # 3. 验证只在当前 session 可见
 
 def test_search_memory():
     """测试检索记忆"""
@@ -794,8 +732,8 @@ def test_agent_with_memory():
 
 1. **新用户场景**：无记忆，Agent 主动询问并保存
 2. **老用户场景**：有记忆，Agent 主动应用偏好
-3. **多步骤任务**：保存进度，中断后恢复
-4. **用户纠正**：更新记忆，验证冲突处理
+3. **用户纠正**：更新记忆，验证冲突处理
+4. **会话恢复**：测试LangGraph Checkpointer自动恢复功能
 
 ## 十一、监控与日志
 

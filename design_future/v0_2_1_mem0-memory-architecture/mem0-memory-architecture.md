@@ -1,31 +1,34 @@
-# Mem0 长期/短期记忆架构研究
+# Mem0 长期记忆架构研究
 
 ## 概述
 
-Mem0 是一个为 AI 应用提供记忆层的开源框架，通过分层存储和智能检索实现长期和短期记忆管理。
+> **重要说明**: 本方案专注于User级长期记忆的实现。Session级短期记忆由LangGraph Checkpointer自动管理,无需Mem0实现。
+
+Mem0 是一个为 AI 应用提供记忆层的开源框架,通过向量化存储和智能检索实现长期记忆管理。
 
 ## 记忆分层架构
 
-### 四层记忆模型
+### 记忆模型（简化版）
+
+> **注**: Session级记忆由LangGraph自带管理,本项目仅需实现User级长期记忆
 
 | 层级 | 生命周期 | 类型 | 用途 | 特点 |
 |------|----------|------|------|------|
-| **Conversation** | 单次响应 | 短期 | 工具调用、中间计算、chain-of-thought | 响应结束后丢失 |
-| **Session** | 分钟~小时 | 短期 | 多步骤任务流程、onboarding、debugging | 需手动清理 |
-| **User** | 周~永久 | 长期 | 用户偏好、账户状态、合规信息 | 需用户授权 |
-| **Organization** | 全局配置 | 长期 | 共享FAQ、产品目录、策略 | 需管理员维护 |
+| **Session** | 会话周期 | 短期 | LangGraph Checkpointer自动管理 | 框架内置 |
+| **User** | 永久 | 长期 | 用户偏好、技术栈、项目信息 | 需用户授权 |
+| **Organization** | 全局 | 长期 | 共享知识库、产品策略 | 需管理员维护 |
 
-### 短期记忆 vs 长期记忆
+### 记忆类型
 
-#### 短期记忆 (Short-term Memory)
-- **对话历史 (Conversation History)** - 最近的对话轮次，保持时间顺序
-- **工作记忆 (Working Memory)** - 临时状态，如工具输出、中间计算结果
-- **注意力上下文 (Attention Context)** - 当前焦点的即时信息
+#### 短期记忆 (Session Memory - LangGraph内置)
+- **对话历史** - LangGraph Checkpointer自动保存
+- **工作状态** - Agent执行中间状态自动管理
+- **会话上下文** - 无需手动管理，框架自动处理
 
-#### 长期记忆 (Long-term Memory)
-- **事实记忆 (Factual Memory)** - 用户偏好、账户详情、领域知识
-- **情景记忆 (Episodic Memory)** - 过去交互的摘要、完成的任务
-- **语义记忆 (Semantic Memory)** - 概念间的关系，支持推理
+#### 长期记忆 (Long-term Memory - Mem0实现)
+- **事实记忆 (Factual Memory)** - 用户偏好、技术栈、工作背景
+- **情景记忆 (Episodic Memory)** - 重要交互记录、完成的任务
+- **语义记忆 (Semantic Memory)** - 概念关系、领域知识
 
 ## 技术实现原理
 
@@ -73,19 +76,16 @@ Mem0 是一个为 AI 应用提供记忆层的开源框架，通过分层存储�
 ### 记忆检索流程 (Memory.search)
 
 ```
-查询 → 向量化 → 多层检索 → 合并排序 → 返回结果
+查询 → 向量化 → 向量检索 → 相关性排序 → 返回结果
                      │
-        ┌────────────┼────────────┐
-        ↓            ↓            ↓
-   User Memory  Session Memory  Conversation
-   (长期-高优先) (短期-中优先)   (短期-低优先)
+                     ↓
+              User Memory (长期记忆)
 ```
 
-#### 检索优先级
+#### 检索策略
 
-1. **User Memory** - 用户级长期记忆，最高优先级
-2. **Session Memory** - 会话级短期记忆，中等优先级
-3. **Conversation History** - 最近对话，最低优先级
+- **User Memory** - 用户级长期记忆，按向量相似度排序
+- **Session Memory** - 由LangGraph Checkpointer管理，会话内自动保持
 
 ## 代码使用示例
 
@@ -121,27 +121,6 @@ config = {
 }
 
 memory = Memory.from_config(config)
-```
-
-### 短期记忆使用 (Session)
-
-```python
-# 添加会话级短期记忆
-memory.add(
-    "我正在规划一个去巴黎的旅行",
-    user_id="john",
-    session_id="trip-planning-2025"  # 启用短期记忆
-)
-
-# 会话内检索
-results = memory.search(
-    "旅行计划",
-    user_id="john",
-    session_id="trip-planning-2025"
-)
-
-# 会话结束后清理
-memory.reset(user_id="john", session_id="trip-planning-2025")
 ```
 
 ### 长期记忆使用 (User)
@@ -180,8 +159,8 @@ memory.add(
 
 当前实现:
 - 仅使用 `user_id` 参数
-- 只实现了 User 级长期记忆
-- 未启用 Session 级短期记忆
+- 实现了 User 级长期记忆
+- Session级记忆由LangGraph Checkpointer管理
 
 ### 建议改进
 
@@ -226,38 +205,31 @@ class AgentMemoryManager:
     def __init__(self, memory_client: Memory):
         self.memory = memory_client
     
-    def add_conversation_memory(
+    def add_memory(
         self,
-        messages: list,
+        content: str,
         user_id: str,
-        thread_id: str
+        metadata: dict | None = None
     ):
-        """添加对话记忆（短期+长期）"""
+        """添加长期记忆"""
         return self.memory.add(
-            messages,
+            content,
             user_id=user_id,
-            session_id=thread_id  # 使用 thread_id 作为 session_id
+            metadata=metadata
         )
     
-    def get_relevant_memories(
+    def search_memory(
         self,
         query: str,
         user_id: str,
-        thread_id: str | None = None,
         limit: int = 5
     ) -> list:
         """检索相关记忆"""
         return self.memory.search(
             query,
             user_id=user_id,
-            session_id=thread_id,
             limit=limit
         )
-    
-    def clear_session(self, user_id: str, thread_id: str):
-        """清理会话记忆"""
-        # 删除该 session 的短期记忆
-        self.memory.delete_all(user_id=user_id, session_id=thread_id)
     
     def get_user_context(self, user_id: str) -> str:
         """获取用户长期上下文"""
@@ -277,11 +249,11 @@ class AgentMemoryManager:
 
 ## 最佳实践
 
-1. **记忆隔离**: 使用 `user_id` + `session_id` 组合确保记忆隔离
-2. **及时清理**: 会话结束后清理短期记忆，避免存储膨胀
-3. **元数据利用**: 使用 `metadata` 标记记忆类型、来源、重要性
-4. **检索优化**: 合理设置 `limit` 参数，平衡召回率和响应速度
-5. **版本管理**: 使用 `memory_id` 追踪记忆版本，支持回滚
+1. **记忆隔离**: 使用 `user_id` 确保用户间记忆隔离
+2. **元数据利用**: 使用 `metadata` 标记记忆类型、来源、重要性
+3. **检索优化**: 合理设置 `limit` 参数，平衡召回率和响应速度
+4. **版本管理**: 使用 `memory_id` 追踪记忆版本，支持回滚
+5. **Session记忆**: 依赖LangGraph Checkpointer自动管理，无需手动处理
 
 ## 参考资料
 
