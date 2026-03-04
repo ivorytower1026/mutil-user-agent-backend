@@ -352,6 +352,46 @@ POST /api/agent/chat
 
 **A**: 不需要。激活配置后，后端会自动重新初始化 MemoryManager，立即生效。
 
+### Q6: Embedding 模型测试和 LLM 测试有什么区别？
+
+**A**: 两者测试方式完全不同：
+
+**LLM 测试**（`role="big"` 或 `role="flash"`）：
+- 使用对话接口测试：发送 "Hi" 并获取响应
+- 返回响应文本预览
+- 响应示例：`{"success": true, "response_preview": "Hello!"}`
+
+**Embedding 测试**（`role="embedding"`）：
+- 使用向量化接口测试：对文本 "test connection" 进行向量化
+- 返回向量维度和前5维预览
+- 响应示例：`{"success": true, "vector_dim": 1024, "vector_preview": [0.1, -0.2, ...]}`
+
+**前端提示**：
+- 创建/编辑配置时，根据 `role` 自动选择测试接口
+- 测试 Embedding 配置时，提示用户"正在测试向量化功能"
+- 显示向量维度信息，帮助用户确认模型配置正确
+
+### Q7: 测试 Embedding 配置时，vector_dim 应该等于 extra_params.embedding_dims 吗？
+
+**A**: 是的，应该相等！
+
+- `extra_params.embedding_dims`: 用户配置的预期维度
+- `vector_dim`: 实际测试返回的维度
+
+**前端验证逻辑**：
+```javascript
+if (config.role === "embedding") {
+  const expected = config.extra_params.embedding_dims;
+  const actual = testResult.vector_dim;
+  
+  if (expected !== actual) {
+    alert(`警告：配置的维度(${expected})与实际维度(${actual})不一致！`);
+  }
+}
+```
+
+如果维度不一致，说明配置错误，需要调整 `extra_params.embedding_dims` 或更换模型。
+
 ---
 
 ## 八、API 接口汇总
@@ -418,16 +458,84 @@ POST /api/admin/llm/configs/{config_id}/activate
 DELETE /api/admin/llm/configs/{config_id}
 ```
 
-### 8.7 测试连接
+### 8.7 测试已保存配置
 
+**接口**: `POST /api/admin/llm/configs/{config_id}/test`
+
+**说明**: 测试已保存的 LLM 或 Embedding 配置连接
+
+**自动角色检测**: 
+- 如果配置的 `role="embedding"`，自动调用 embedding 测试
+- 如果配置的 `role="big"` 或 `role="flash"`，自动调用 LLM 测试
+
+**响应示例（Embedding）**:
+```json
+{
+  "success": true,
+  "message": "Embedding connection successful",
+  "response_time_ms": 245,
+  "vector_dim": 1024,
+  "vector_preview": [0.123, -0.456, 0.789, 0.234, -0.567]
+}
 ```
-POST /api/admin/llm/test-connection
-Content-Type: application/json
 
+**响应示例（LLM）**:
+```json
+{
+  "success": true,
+  "message": "Connection successful",
+  "response_time_ms": 156,
+  "response_preview": "Hello! How can I help you today?"
+}
+```
+
+### 8.8 测试 LLM 连接（临时参数）
+
+**接口**: `POST /api/admin/llm/test`
+
+**说明**: 使用临时参数测试 LLM 连接（不保存配置）
+
+**请求示例**:
+```json
+{
+  "base_url": "http://192.168.110.44:8001/v1",
+  "api_key": "EMPTY",
+  "model_name": "Qwen3-VL-30B-A3B-Instruct"
+}
+```
+
+### 8.9 测试 Embedding 连接（临时参数）
+
+**接口**: `POST /api/admin/llm/embedding/test`
+
+**说明**: 使用临时参数测试 Embedding 模型连接（不保存配置）
+
+**请求示例**:
+```json
 {
   "base_url": "http://192.168.110.44:8008/v1",
   "api_key": "dummy-key",
   "model_name": "Qwen3-Embedding-0.6B"
+}
+```
+
+**响应示例**:
+```json
+{
+  "success": true,
+  "message": "Embedding connection successful",
+  "response_time_ms": 245,
+  "vector_dim": 1024,
+  "vector_preview": [0.123, -0.456, 0.789, 0.234, -0.567]
+}
+```
+
+**失败响应示例**:
+```json
+{
+  "success": false,
+  "message": "Connection failed: Connection refused",
+  "response_time_ms": null
 }
 ```
 
@@ -469,6 +577,35 @@ function EmbeddingConfigManager() {
     }
   };
   
+  const testConfig = async (configId) => {
+    try {
+      const response = await fetch(`/api/admin/llm/configs/${configId}/test`, {
+        method: 'POST'
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        // 检查维度是否匹配
+        const config = configs.find(c => c.id === configId);
+        if (config && result.vector_dim !== config.extra_params?.embedding_dims) {
+          alert(`✅ 测试成功！\n` +
+                `响应时间: ${result.response_time_ms}ms\n` +
+                `向量维度: ${result.vector_dim}\n` +
+                `⚠️ 警告：配置维度(${config.extra_params?.embedding_dims})与实际维度(${result.vector_dim})不一致！`);
+        } else {
+          alert(`✅ 测试成功！\n` +
+                `响应时间: ${result.response_time_ms}ms\n` +
+                `向量维度: ${result.vector_dim}`);
+        }
+      } else {
+        alert(`❌ 测试失败：${result.message}`);
+      }
+    } catch (error) {
+      alert(`❌ 测试失败：${error.message}`);
+    }
+  };
+  
   return (
     <div>
       <h2>Embedding 配置管理</h2>
@@ -505,6 +642,9 @@ function EmbeddingConfigManager() {
                 }
               </td>
               <td>
+                <button onClick={() => testConfig(config.id)}>
+                  测试
+                </button>
                 {!config.is_active && (
                   <button onClick={() => activateConfig(config.id)}>
                     激活
@@ -567,6 +707,9 @@ function EmbeddingConfigManager() {
             </span>
           </td>
           <td>
+            <button @click="testConfig(config.id)">
+              测试
+            </button>
             <button 
               v-if="!config.is_active" 
               @click="activateConfig(config.id)"
@@ -615,6 +758,35 @@ const activateConfig = async (configId) => {
   }
 };
 
+const testConfig = async (configId) => {
+  try {
+    const response = await fetch(`/api/admin/llm/configs/${configId}/test`, {
+      method: 'POST'
+    });
+    
+    const result = await response.json();
+    
+    if (result.success) {
+      // 检查维度是否匹配
+      const config = configs.value.find(c => c.id === configId);
+      if (config && result.vector_dim !== config.extra_params?.embedding_dims) {
+        alert(`✅ 测试成功！\n` +
+              `响应时间: ${result.response_time_ms}ms\n` +
+              `向量维度: ${result.vector_dim}\n` +
+              `⚠️ 警告：配置维度(${config.extra_params?.embedding_dims})与实际维度(${result.vector_dim})不一致！`);
+      } else {
+        alert(`✅ 测试成功！\n` +
+              `响应时间: ${result.response_time_ms}ms\n` +
+              `向量维度: ${result.vector_dim}`);
+      }
+    } else {
+      alert(`❌ 测试失败：${result.message}`);
+    }
+  } catch (error) {
+    alert(`❌ 测试失败：${error.message}`);
+  }
+};
+
 const handleCreateSuccess = () => {
   showCreateModal.value = false;
   loadConfigs();
@@ -638,8 +810,10 @@ onMounted(() => {
 - [ ] 添加首次部署引导提示
 - [ ] 添加配置切换确认对话框
 - [ ] 添加维度兼容性警告
+- [ ] 添加 Embedding 测试功能
 - [ ] 测试配置 CRUD 功能
 - [ ] 测试配置激活功能
+- [ ] 测试维度验证功能
 
 ### 关键点
 
@@ -648,9 +822,10 @@ onMounted(() => {
 3. **必需字段**：`extra_params.embedding_dims`
 4. **热更新**：激活配置后自动重初始化
 5. **维度兼容**：切换不同维度模型时警告用户
+6. **测试功能**：Embedding 测试返回向量维度，自动验证配置正确性
 
 ---
 
-**文档版本**: v1.0  
+**文档版本**: v1.1  
 **最后更新**: 2026-03-04  
 **维护者**: Backend Team

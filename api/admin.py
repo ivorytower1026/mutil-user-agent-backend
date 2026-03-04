@@ -1104,7 +1104,7 @@ async def test_llm_config(
     admin: User = Depends(get_admin_user),
     db: Session = Depends(get_db),
 ):
-    """Test LLM connection using saved config.
+    """Test LLM/Embedding connection using saved config.
 
     Args:
         config_id: LLM config ID
@@ -1122,11 +1122,20 @@ async def test_llm_config(
         raise HTTPException(status_code=404, detail="LLM config not found")
 
     manager = get_llm_manager()
-    result = await manager.test_connection(
-        base_url=config.base_url,
-        api_key=config.api_key,
-        model_name=config.model_name,
-    )
+
+    # Choose test method based on role
+    if config.role == "embedding":
+        result = await manager.test_embedding_connection(
+            base_url=config.base_url,
+            api_key=config.api_key,
+            model_name=config.model_name,
+        )
+    else:
+        result = await manager.test_connection(
+            base_url=config.base_url,
+            api_key=config.api_key,
+            model_name=config.model_name,
+        )
 
     return result
 
@@ -1152,6 +1161,35 @@ async def test_llm_connection(
     manager = get_llm_manager()
 
     result = await manager.test_connection(
+        base_url=request["base_url"],
+        api_key=request["api_key"],
+        model_name=request["model_name"],
+    )
+
+    return result
+
+
+@router.post("/llm/embedding/test", response_model=dict)
+async def test_embedding_connection(
+    request: dict,
+    admin: User = Depends(get_admin_user),
+    db: Session = Depends(get_db),
+):
+    """Test embedding model connection.
+
+    Args:
+        request: Test request with base_url, api_key, model_name
+        admin: Current admin user
+        db: Database session
+
+    Returns:
+        Test result with vector dimension info
+    """
+    from src.llm_manager import get_llm_manager
+
+    manager = get_llm_manager()
+
+    result = await manager.test_embedding_connection(
         base_url=request["base_url"],
         api_key=request["api_key"],
         model_name=request["model_name"],

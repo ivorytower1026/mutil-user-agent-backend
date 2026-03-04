@@ -282,6 +282,45 @@ class LLMManager:
         except Exception as e:
             return {"success": False, "message": str(e), "response_time_ms": None}
 
+    async def test_embedding_connection(
+        self, base_url: str, api_key: str, model_name: str, timeout: int = 10
+    ) -> dict:
+        """Test embedding model connection.
+
+        Args:
+            base_url: API base URL
+            api_key: API key
+            model_name: Embedding model name
+            timeout: Request timeout in seconds
+
+        Returns:
+            Test result with vector dimension info
+        """
+        import time
+        from langchain_openai import OpenAIEmbeddings
+
+        try:
+            embeddings = OpenAIEmbeddings(
+                model=model_name,
+                openai_api_base=base_url,
+                openai_api_key=api_key,
+            )
+
+            start_time = time.time()
+            # Test embedding a simple text
+            result = await embeddings.aembed_query("test connection")
+            elapsed_ms = int((time.time() - start_time) * 1000)
+
+            return {
+                "success": True,
+                "message": "Embedding connection successful",
+                "response_time_ms": elapsed_ms,
+                "vector_dim": len(result),
+                "vector_preview": result[:5],  # First 5 dimensions as preview
+            }
+        except Exception as e:
+            return {"success": False, "message": str(e), "response_time_ms": None}
+
 
 _llm_manager: LLMManager | None = None
 
