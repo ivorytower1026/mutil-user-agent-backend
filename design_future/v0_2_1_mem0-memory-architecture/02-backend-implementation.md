@@ -532,9 +532,95 @@ DEFAULT_SYSTEM_PROMPT = f"""
 """
 ```
 
-## 六、集成步骤
+## 六、记忆功能开关配置
 
-### 6.1 修改文件清单
+> **版本**: v0.2.1 新增  
+> **更新日期**: 2026-03-04
+
+### 6.1 概述
+
+支持通过 `.env` 配置开关控制记忆功能的启用/禁用，便于：
+- 开发环境快速切换
+- 生产环境按需部署
+- 降低不必要的资源消耗
+
+### 6.2 配置项
+
+**src/config.py**
+
+```python
+# Mem0 记忆系统配置
+MEMORY_ENABLED: int = 1  # 是否启用记忆功能 (1=开启, 0=关闭)
+MEM0_COLLECTION_NAME: str = "multi_agent_memory"
+MEM0_QDRANT_HOST: str = "192.168.11.16"
+MEM0_QDRANT_PORT: int = 6333
+```
+
+**.env 文件**
+
+```bash
+MEMORY_ENABLED=1  # 开启记忆功能（默认）
+# 或
+MEMORY_ENABLED=0  # 关闭记忆功能
+```
+
+### 6.3 条件初始化
+
+**src/agent_manager.py** - `init()` 方法
+
+```python
+async def init(self):
+    # ... 现有代码 ...
+    
+    with SessionLocal() as db:
+        self.config_manager.load_configs(db)
+        if settings.MEMORY_ENABLED:
+            self.memory_manager.init(db)
+```
+
+### 6.4 条件工具和 Prompt
+
+**src/agent_manager.py** - `_build_agent()` 方法
+
+```python
+# 工具：根据开关决定是否添加记忆工具
+if settings.MEMORY_ENABLED:
+    memory_tools = self.memory_manager.create_tools()
+    all_tools = mcp_tools + memory_tools
+else:
+    all_tools = mcp_tools
+
+# Prompt：根据开关决定是否包含记忆系统指南
+system_prompt = DEFAULT_SYSTEM_PROMPT
+if settings.MEMORY_ENABLED:
+    system_prompt += MEMORY_SYSTEM_PROMPT
+system_prompt += main_config.system_prompt
+```
+
+### 6.5 行为对比
+
+| 功能 | MEMORY_ENABLED=1 | MEMORY_ENABLED=0 |
+|------|------------------|------------------|
+| 记忆工具 (6个) | ✅ 可用 | ❌ 不可用 |
+| 记忆 Prompt | ✅ 包含 | ❌ 不包含 |
+| MemoryManager 初始化 | ✅ 执行 | ❌ 跳过 |
+| Qdrant 连接 | ✅ 建立 | ❌ 不建立 |
+
+### 6.6 验证方式
+
+**开启状态** (`MEMORY_ENABLED=1`)：
+- Agent 拥有 6 个记忆工具
+- System Prompt 包含记忆使用指南
+- 日志显示 `[MemoryManager] Initialized mem0 client`
+
+**关闭状态** (`MEMORY_ENABLED=0`)：
+- Agent 无记忆工具
+- System Prompt 不含记忆相关内容
+- 无 MemoryManager 初始化日志
+
+## 七、集成步骤
+
+### 7.1 修改文件清单
 
 #### src/config.py
 添加 Qdrant 向量数据库配置（仅此部分使用环境变量）
@@ -552,7 +638,7 @@ DEFAULT_SYSTEM_PROMPT = f"""
 #### src/database.py
 无需修改（复用现有的 LlmConfig 表）
 
-### 6.2 集成代码示例
+### 7.2 集成代码示例
 
 ```python
 # src/agent_manager.py
@@ -595,9 +681,9 @@ class AgentManager:
         )
 ```
 
-## 七、配置设计
+## 八、配置设计
 
-### 7.1 config.py 添加（仅Qdrant配置）
+### 8.1 config.py 添加（仅Qdrant配置）
 
 ```python
 # src/config.py
@@ -615,7 +701,7 @@ class Settings(BaseSettings):
 - Qdrant配置使用环境变量（基础设施配置）
 - LLM和Embedding配置从数据库获取（动态可配置）
 
-### 7.2 .env 文件添加
+### 8.2 .env 文件添加
 
 ```bash
 # Mem0 Qdrant 配置
@@ -624,7 +710,7 @@ MEM0_QDRANT_HOST=localhost
 MEM0_QDRANT_PORT=6333
 ```
 
-### 7.3 数据库初始化 Embedding 配置
+### 8.3 数据库初始化 Embedding 配置
 
 在部署时需要初始化一条 `role="embedding"` 的配置记录：
 
@@ -666,7 +752,7 @@ if __name__ == "__main__":
     init_embedding_config()
 ```
 
-### 7.4 配置说明
+### 8.4 配置说明
 
 **LlmConfig表复用**：
 - `role="big"`: 主模型（Agent推理、Mem0 LLM）
@@ -683,7 +769,7 @@ if __name__ == "__main__":
 3. 后端自动重新初始化MemoryManager
 4. 新配置立即生效
 
-## 八、实施计划
+## 九、实施计划
 
 ### Phase 1: 基础集成（1-2 天）
 
@@ -731,9 +817,9 @@ if __name__ == "__main__":
 - 用户可以查看和管理自己的记忆
 - 记忆数据可以导出备份
 
-## 九、技术要点
+## 十、技术要点
 
-### 9.1 工具上下文传递
+### 10.1 工具上下文传递
 
 **问题**：工具函数无法直接访问 user_id
 
@@ -752,7 +838,7 @@ def save_memory(
     # ...
 ```
 
-### 9.2 记忆冲突处理
+### 10.2 记忆冲突处理
 
 **问题**：用户纠正信息时，如何更新记忆？
 
@@ -761,7 +847,7 @@ def save_memory(
 - 在 System Prompt 中引导 Agent 直接保存新信息即可
 - 示例：用户说"其实我喜欢 JavaScript" → save_memory("用户偏好 JavaScript")
 
-### 9.3 记忆检索相关性
+### 10.3 记忆检索相关性
 
 **问题**：如何提高检索准确性？
 
@@ -771,14 +857,14 @@ def save_memory(
 3. 检索时使用精确的查询词
 4. 默认 limit=5，平衡召回率和性能
 
-### 9.4 会话记忆管理
+### 10.4 会话记忆管理
 
 **策略**：完全依赖LangGraph
 - LangGraph Checkpointer自动保存对话历史和状态
 - 中断恢复由checkpointer自动处理
 - 无需Mem0参与会话级记忆
 
-### 9.5 配置动态获取
+### 10.5 配置动态获取
 
 **问题**：如何动态管理LLM和Embedding配置？
 
@@ -818,7 +904,7 @@ mem0_config = {
 }
 ```
 
-### 9.6 配置热更新
+### 10.6 配置热更新
 
 **问题**：如何在不重启服务的情况下切换模型？
 
@@ -858,9 +944,9 @@ def activate_llm_config(config_id: str, db: Session = Depends(get_db)):
 - 已保存的向量数据不会丢失（存储在Qdrant中）
 - 正在进行的会话不受影响（使用的是已初始化的客户端实例）
 
-## 十、测试计划
+## 十一、测试计划
 
-### 10.1 单元测试
+### 11.1 单元测试
 
 ```python
 # tests/test_memory_integration.py
@@ -884,7 +970,7 @@ def test_memory_isolation():
     # 2. 用户 B 检索，验证无法看到 A 的记忆
 ```
 
-### 10.2 集成测试
+### 11.2 集成测试
 
 ```python
 def test_agent_with_memory():
@@ -894,16 +980,16 @@ def test_agent_with_memory():
     # 3. 验证 Agent 行为符合偏好
 ```
 
-### 10.3 场景测试
+### 11.3 场景测试
 
 1. **新用户场景**：无记忆，Agent 主动询问并保存
 2. **老用户场景**：有记忆，Agent 主动应用偏好
 3. **用户纠正**：更新记忆，验证冲突处理
 4. **会话恢复**：测试LangGraph Checkpointer自动恢复功能
 
-## 十一、监控与日志
+## 十二、监控与日志
 
-### 11.1 关键日志
+### 12.1 关键日志
 
 ```python
 # 保存记忆
@@ -916,7 +1002,7 @@ logger.info(f"[MemoryManager] Searched memory: query='{query}', found={len(resul
 logger.exception(f"[MemoryManager] Failed to save memory: {e}")
 ```
 
-### 11.2 监控指标（可选）
+### 12.2 监控指标（可选）
 
 1. **记忆使用频率**
    - save_memory 调用次数
@@ -932,9 +1018,9 @@ logger.exception(f"[MemoryManager] Failed to save memory: {e}")
    - 记忆操作延迟
    - 向量检索延迟
 
-## 十二、架构变更总结
+## 十三、架构变更总结
 
-### 12.1 核心变更
+### 13.1 核心变更
 
 **配置管理变更**：
 - ❌ 删除：环境变量硬编码 LLM/Embedding 配置
@@ -962,7 +1048,7 @@ with SessionLocal() as db:
 - 激活 `big` 或 `embedding` 角色配置时自动重新初始化 MemoryManager
 - 添加在 `api/admin.py` 的 `activate_llm_config` 接口中
 
-### 12.2 优势
+### 13.2 优势
 
 ✅ **统一管理**：所有模型配置（big/flash/embedding）在一个表中管理  
 ✅ **动态切换**：支持不重启服务切换 Embedding 模型  
@@ -971,7 +1057,7 @@ with SessionLocal() as db:
 ✅ **易于扩展**：未来可轻松添加更多角色（如 vision/audio）  
 ✅ **会话记忆**：LangGraph 自动管理，无需开发
 
-### 12.3 前端配合
+### 13.3 前端配合
 
 **前端需要做的事**：
 1. 复用现有 LLM 配置管理界面
@@ -981,7 +1067,7 @@ with SessionLocal() as db:
 
 **详细说明**：见 [前端对接文档](./frontend-integration.md)
 
-### 12.4 部署检查清单
+### 13.4 部署检查清单
 
 **后端部署**：
 - [ ] 添加 Qdrant 配置到 `.env` 文件
@@ -997,7 +1083,7 @@ with SessionLocal() as db:
 - [ ] 测试配置 CRUD 功能
 - [ ] 测试配置激活功能
 
-## 十三、参考资料
+## 十四、参考资料
 
 - [Mem0 官方文档](https://docs.mem0.ai)
 - [Mem0 GitHub](https://github.com/mem0ai/mem0)

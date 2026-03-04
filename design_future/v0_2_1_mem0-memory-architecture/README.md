@@ -2,7 +2,7 @@
 
 > **版本**: v0.2.1  
 > **更新日期**: 2026-03-04  
-> **状态**: 设计完成，待实施
+> **状态**: ✅ 已实施
 
 ## 📋 方案概述
 
@@ -14,33 +14,15 @@
 - ✅ 动态模型配置（数据库管理）
 - ✅ 配置热更新（无需重启）
 - ✅ 统一管理界面（复用LLM配置）
+- ✅ **记忆功能开关（MEMORY_ENABLED 配置）**
 
 ## 📚 文档索引
 
-### 1. 架构研究
-- **[mem0-memory-architecture.md](./mem0-memory-architecture.md)** - Mem0技术架构和原理研究
-  - 记忆分层模型
-  - 技术实现原理
-  - 代码使用示例
-  - 最佳实践
-
-### 2. 后端集成方案
-- **[integration-plan.md](./integration-plan.md)** - 后端详细设计和实现指南
-  - 架构设计
-  - 记忆分层策略
-  - 工具设计
-  - 配置管理
-  - 集成步骤
-  - 技术要点
-  - 测试计划
-
-### 3. 前端对接文档
-- **[frontend-integration.md](./frontend-integration.md)** - 前端配置管理界面集成指南
-  - LLM配置管理界面复用
-  - Embedding配置创建和管理
-  - 配置切换流程
-  - 代码示例（React/Vue）
-  - API接口汇总
+| 文档 | 说明 |
+|------|------|
+| **[01-architecture.md](./01-architecture.md)** | Mem0 技术架构和原理研究 |
+| **[02-backend-implementation.md](./02-backend-implementation.md)** | 后端详细设计和实现指南（含记忆开关配置） |
+| **[03-frontend-integration.md](./03-frontend-integration.md)** | 前端配置管理界面集成指南 |
 
 ## 🎯 核心架构
 
@@ -105,17 +87,18 @@
 
 ### Phase 1: 基础集成（1-2天）
 - [x] 设计方案文档
-- [ ] 创建 `src/memory_manager.py`
-- [ ] 添加 Qdrant 配置
-- [ ] 初始化 Embedding 配置
-- [ ] 集成到 AgentManager
-- [ ] 添加配置热更新逻辑
-- [ ] 编写基础测试
+- [x] 创建 `src/memory_manager.py`
+- [x] 添加 Qdrant 配置
+- [x] 初始化 Embedding 配置
+- [x] 集成到 AgentManager
+- [x] 添加配置热更新逻辑
+- [x] 编写基础测试
+- [x] **添加记忆功能开关（MEMORY_ENABLED）**
 
 ### Phase 2: Prompt优化（1天）
-- [ ] 测试不同场景
-- [ ] 调优 System Prompt
-- [ ] 添加使用示例
+- [x] 测试不同场景
+- [x] 调优 System Prompt
+- [x] 添加使用示例
 
 ### Phase 3: 高级功能（可选，2-3天）
 - [ ] 记忆管理 API
@@ -144,10 +127,13 @@ docker run -p 6333:6333 qdrant/qdrant
 
 ```bash
 # 添加 Qdrant 配置到 .env
+MEMORY_ENABLED=1  # 是否启用记忆功能 (1=开启, 0=关闭)
 MEM0_COLLECTION_NAME=multi_agent_memory
 MEM0_QDRANT_HOST=localhost
 MEM0_QDRANT_PORT=6333
 ```
+
+> **提示**: 设置 `MEMORY_ENABLED=0` 可完全禁用记忆功能，此时 Agent 不会加载记忆工具和 Prompt。
 
 ### 3. 初始化 Embedding 配置
 
