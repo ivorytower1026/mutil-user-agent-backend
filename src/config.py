@@ -70,7 +70,7 @@ class Settings(BaseSettings):
     LLM_MODE: int
 
     # Mem0 记忆系统配置
-    MEMORY_ENABLED: int = 2  # 是否启用记忆功能 (1=开启, 0=关闭)
+    MEMORY_ENABLED: int = 0  # 是否启用记忆功能 (1=开启, 0=关闭)
     MEM0_COLLECTION_NAME: str = "multi_agent_memory"
     MEM0_QDRANT_HOST: str = "192.168.11.16"
     MEM0_QDRANT_PORT: int = 6333
