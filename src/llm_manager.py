@@ -50,6 +50,15 @@ class LLMManager:
                 .first()
             )
 
+            if role == "flash" :
+                config.extra_params = {
+                    "extra_body": {
+                        "chat_template_kwargs": {
+                            "enable_thinking": False
+                        }
+                    }
+                }
+
             if config:
                 llm = self._create_llm(config)
                 with self._cache_lock:

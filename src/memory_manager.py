@@ -115,13 +115,13 @@ class MemoryManager:
     def _get_fallback_llm_config(self) -> dict:
         """Get fallback LLM config from environment variables."""
         return {
-            "provider": "openai",
-            "config": {
-                "model": "glm-5",
-                "openai_api_key": settings.ZHIPUAI_API_KEY,
-                "openai_api_base": settings.ZHIPUAI_API_BASE,
-                "temperature": 0,
-            },
+            "provider": "vllm",
+                "config": {
+                    "model": settings.FLASH_MODEL_NAME,
+                    "vllm_base_url": settings.FLASH_MODEL_URL,
+                    "temperature": 0,
+                    "max_tokens": 2000,
+                },
         }
 
     def _get_fallback_embedding_config(self) -> dict:

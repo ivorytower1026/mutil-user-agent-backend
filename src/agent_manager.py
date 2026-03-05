@@ -372,7 +372,7 @@ class AgentManager:
                 ):
                     await queue.put(event)
             except Exception as e:
-                logger.exception("agent_task error")
+                logger.exception("agent_task error %s", e)
                 await queue.put(self.sse_formatter.make_error_event(str(e)))
             finally:
                 pending["count"] -= 1

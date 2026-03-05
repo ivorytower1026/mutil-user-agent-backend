@@ -75,6 +75,9 @@ class Settings(BaseSettings):
     MEM0_QDRANT_HOST: str = "192.168.11.16"
     MEM0_QDRANT_PORT: int = 6333
 
+    FLASH_MODEL_NAME: str = "Qwen3.5-35B-A3B"
+    FLASH_MODEL_URL: str = "http://192.168.110.44:8001/v1"
+
     @field_validator("IS_LANGFUSE", mode="before")
     def parse_is_langfuse(cls, v):
         return int(v)
