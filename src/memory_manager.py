@@ -206,6 +206,12 @@ class MemoryManager:
                 kwargs: dict = {"user_id": user_id}
 
                 if metadata:
+                    if isinstance(metadata, str):
+                        try:
+                            metadata = json.loads(metadata)
+                        except Exception:
+                            metadata = {"value": metadata}
+
                     kwargs["metadata"] = metadata
 
                 result = self._memory_client.add(conversation, **kwargs)
