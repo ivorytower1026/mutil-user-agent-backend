@@ -1,12 +1,11 @@
 """Memory Manager for Mem0 integration."""
 
 import json
-from typing import Annotated
 
 from langchain_core.tools import BaseTool, StructuredTool
+from langchain.tools import ToolRuntime
 from mem0 import Memory
 from sqlalchemy.orm import Session
-from langgraph.prebuilt import InjectedState
 from src.config import settings
 from src.llm_manager import get_llm_manager
 from src.utils.get_logger import get_logger
@@ -148,25 +147,30 @@ class MemoryManager:
         self.init(db)
         logger.info("[MemoryManager] Reinitialized with new config")
 
-    def _extract_user_id(self, state: dict) -> str:
+    def _extract_user_id(self, tool_runtime: ToolRuntime) -> str:
         """
-        Extract user_id from tool state.
+        Extract user_id from ToolRuntime.
 
         Args:
-            state: InjectedState dict
+            tool_runtime: ToolRuntime instance with config
 
         Returns:
             user_id string
         """
-        config = state.get("config", {})
-        configurable = config.get("configurable", {})
-        thread_id = configurable.get("thread_id")
+        from src.database import SessionLocal, Thread
+
+        config = tool_runtime.config
+        thread_id = config.get("configurable", {}).get("thread_id")
 
         if not thread_id:
             return "default"
 
-        user_id = thread_id[:36] if len(thread_id) > 37 else "default"
-        return user_id
+        with SessionLocal() as db:
+            thread = db.query(Thread).filter(Thread.thread_id == thread_id).first()
+            if thread:
+                return thread.user_id
+
+        return "default"
 
     def create_tools(self) -> list[BaseTool]:
         """Create memory tools list."""
@@ -191,10 +195,10 @@ class MemoryManager:
         def add_memory(
             text: str,
             metadata: dict | None = None,
-            state: Annotated[dict, InjectedState] = None,
+            tool_runtime: ToolRuntime = None,
         ) -> str:
             """Save new memory."""
-            user_id = self._extract_user_id(state)
+            user_id = self._extract_user_id(tool_runtime)
 
             try:
                 conversation = [{"role": "user", "content": text}]
@@ -248,10 +252,10 @@ class MemoryManager:
         def search_memories(
             query: str,
             limit: int = 5,
-            state: Annotated[dict, InjectedState] = None,
+            tool_runtime: ToolRuntime = None,
         ) -> str:
             """Search memories (auto filter by current user)."""
-            user_id = self._extract_user_id(state)
+            user_id = self._extract_user_id(tool_runtime)
 
             try:
 
@@ -294,17 +298,15 @@ class MemoryManager:
         def get_memories(
             page: int = 1,
             page_size: int = 10,
-            state: Annotated[dict, InjectedState] = None,
+            tool_runtime: ToolRuntime = None,
         ) -> str:
             """List memories (auto filter by current user, supports pagination)."""
-            user_id = self._extract_user_id(state)
+            user_id = self._extract_user_id(tool_runtime)
 
             try:
 
                 results = self._memory_client.get_all(
                     user_id=user_id,
-                    page=page,
-                    page_size=page_size,
                 )
 
                 logger.info(
@@ -329,10 +331,10 @@ class MemoryManager:
 
         def get_memory(
             memory_id: str,
-            state: Annotated[dict, InjectedState] = None,
+            tool_runtime: ToolRuntime = None,
         ) -> str:
             """Get single memory (validates ownership)."""
-            user_id = self._extract_user_id(state)
+            user_id = self._extract_user_id(tool_runtime)
 
             try:
                 memory = self._memory_client.get(memory_id)
@@ -370,10 +372,10 @@ class MemoryManager:
         def update_memory(
             memory_id: str,
             text: str,
-            state: Annotated[dict, InjectedState] = None,
+            tool_runtime: ToolRuntime = None,
         ) -> str:
             """Update memory content (validates ownership)."""
-            user_id = self._extract_user_id(state)
+            user_id = self._extract_user_id(tool_runtime)
 
             try:
                 memory = self._memory_client.get(memory_id)
@@ -412,10 +414,10 @@ class MemoryManager:
 
         def delete_memory(
             memory_id: str,
-            state: Annotated[dict, InjectedState] = None,
+            tool_runtime: ToolRuntime = None,
         ) -> str:
             """Delete memory (validates ownership)."""
-            user_id = self._extract_user_id(state)
+            user_id = self._extract_user_id(tool_runtime)
 
             try:
                 memory = self._memory_client.get(memory_id)
