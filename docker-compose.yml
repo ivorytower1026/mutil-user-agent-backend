@@ -32,4 +32,4 @@ services:
       args:
         HTTP_PROXY: ${HTTP_PROXY:-}
         HTTPS_PROXY: ${HTTPS_PROXY:-}
-    image: e2bdev/code-interpreter:latest
+    image: mutil-user-agent-sandbox:latest

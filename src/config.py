@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     # 工作空间配置
     WORKSPACE_ROOT: str
     SHARED_DIR: str
-    DOCKER_IMAGE: str
+    DOCKER_IMAGE: str = "mutil-user-agent-sandbox:latest"
     CONTAINER_WORKSPACE_DIR: str
     CONTAINER_SKILLS_DIR: str
     CONTAINER_SHARED_DIR: str
