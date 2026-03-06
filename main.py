@@ -1,10 +1,11 @@
 import asyncio
+import sys
 from asyncio import WindowsSelectorEventLoopPolicy
 from contextlib import asynccontextmanager
 
 from src.config import settings
-
-asyncio.set_event_loop_policy(WindowsSelectorEventLoopPolicy())
+if sys.platform.startswith("win"):
+    asyncio.set_event_loop_policy(WindowsSelectorEventLoopPolicy())
 
 import uvicorn
 from fastapi import FastAPI
