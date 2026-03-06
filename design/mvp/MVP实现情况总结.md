@@ -272,7 +272,7 @@ docker --version
 uv sync
 
 # 配置环境变量（.env文件）
-cp .env.example .env
+cp .env.example.linux .env
 # 编辑.env，设置ZHIPUAI_API_KEY等
 
 # 启动服务

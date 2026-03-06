@@ -33,7 +33,7 @@ backend/
 ### 1. 配置环境变量
 
 ```bash
-cp .env.example .env
+cp .env.example.linux .env
 ```
 
 编辑`.env`文件，设置你的智谱AI API密钥：

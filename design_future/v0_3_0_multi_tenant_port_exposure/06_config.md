@@ -33,7 +33,7 @@ DOCKER_PIDS_LIMIT=100
 ### 1.2 完整配置示例
 
 ```bash
-# .env.example (更新)
+# .env.example.linux (更新)
 
 # 智谱AI配置
 ZHIPUAI_API_KEY=your_api_key
