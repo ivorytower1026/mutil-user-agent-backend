@@ -118,6 +118,31 @@ backend/
 - Use `@field_validator` for type conversions (e.g., string to int)
 - LLM instances: `big_llm` (glm-5), `flash_llm` (qwen3-vl) from `src.config`
 
+### Logging
+- Unified logging strategy: all logs output to single file `logs/app.log`
+- Module differentiation via logger name in log format: `%(name)s` field
+- Daily rotation at midnight, retains 30 days of backups
+- Optional console output via `LOG_TO_CONSOLE=1` environment variable
+
+**Usage:**
+```python
+from src.utils.get_logger import get_logger
+
+logger = get_logger("module-name")  # e.g., "main-agent", "llm-manager"
+logger.info("Your message")
+```
+
+**Log Format:**
+```
+2026-03-06 10:00:00 | INFO     | main-agent          | Processing request
+                      ↑ level   ↑ module name        ↑ message
+```
+
+**Environment Variables:**
+- `LOG_LEVEL`: Log level (DEBUG, INFO, WARNING, ERROR), default: INFO
+- `LOG_TO_CONSOLE`: Enable console output (0 or 1), default: 0
+- `LOG_BACKUP_DAYS`: Days to retain log files, default: 30
+
 ### Database
 - Use SQLAlchemy ORM with declarative base
 - Models in `src/database.py` (User, Thread)

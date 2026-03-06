@@ -91,12 +91,20 @@ class Settings(BaseSettings):
     FLASH_MODEL_NAME: str = "Qwen3.5-35B-A3B"
     FLASH_MODEL_URL: str = "http://192.168.110.44:8001/v1"
 
+    LOG_LEVEL: str = "INFO"
+    LOG_TO_CONSOLE: int = 0
+    LOG_BACKUP_DAYS: int = 30
+
     @field_validator("IS_LANGFUSE", mode="before")
     def parse_is_langfuse(cls, v):
         return int(v)
 
     @field_validator("MEMORY_ENABLED", mode="before")
     def parse_memory_enabled(cls, v):
+        return int(v)
+
+    @field_validator("LOG_TO_CONSOLE", mode="before")
+    def parse_log_to_console(cls, v):
         return int(v)
 
     @field_validator("LLM_MODE", mode="before")
