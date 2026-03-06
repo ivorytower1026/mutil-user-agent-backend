@@ -60,7 +60,6 @@ docker-compose --env-file .env.docker up -d
 copy .env.example.windows .env
 
 # 编辑 .env 文件，修改以下必填项：
-# ZHIPUAI_API_KEY=你的智谱AI密钥
 # DATABASE_URL=postgresql://root:123456@localhost/agent_db
 # SECRET_KEY=随机字符串（生产环境必须修改）
 ```
@@ -108,7 +107,6 @@ docker-compose --env-file .env.docker up -d
 cp .env.example.linux .env
 
 # 编辑 .env 文件，修改以下必填项：
-# ZHIPUAI_API_KEY=你的智谱AI密钥
 # DATABASE_URL=postgresql://root:123456@localhost/agent_db
 # SECRET_KEY=随机字符串（生产环境必须修改）
 ```
@@ -146,7 +144,6 @@ uv run python main.py
 
 | 配置项 | 说明 | 示例 |
 |--------|------|------|
-| `ZHIPUAI_API_KEY` | 智谱AI API 密钥 | `xxxx` |
 | `DATABASE_URL` | PostgreSQL 连接字符串 | `postgresql://root:123456@localhost/agent_db` |
 | `SECRET_KEY` | JWT 签名密钥 | 随机字符串（生产环境必须修改）|
 
@@ -156,12 +153,13 @@ uv run python main.py
 
 | 功能 | 配置项 | 默认值 | 说明 |
 |------|--------|--------|------|
-| Langfuse 监控 | `IS_LANGFUSE` | `0` (关闭) | AI 对话监控和追踪 |
-| 记忆系统 | `MEMORY_ENABLED` | `0` (关闭) | 长期记忆功能（需要 Qdrant）|
+| Langfuse 监控 | `IS_LANGFUSE` | `0` (关闭) `1`（开启） | AI 对话监控和追踪 |
+| 记忆系统 | `MEMORY_ENABLED` | `0` (关闭) `1`（开启） | 长期记忆功能（需要 Qdrant）|
 
 💡 **启用方法**：
 
 **启用 Langfuse 监控**：
+
 ```bash
 IS_LANGFUSE=1
 LANGFUSE_SECRET_KEY=your-secret-key
@@ -178,8 +176,6 @@ MEM0_QDRANT_PORT=6333
 
 ### 可选配置项
 
-<details>
-<summary>点击展开完整配置列表</summary>
 
 | 配置项 | 默认值 | 说明 |
 |--------|--------|------|
@@ -197,8 +193,6 @@ MEM0_QDRANT_PORT=6333
 | `ACCESS_TOKEN_EXPIRE_HOURS` | `24` | JWT 令牌过期时间（小时）|
 | `LOG_LEVEL` | `INFO` | 日志级别 |
 | `LOG_TO_CONSOLE` | `0` | 是否输出日志到控制台 |
-
-</details>
 
 ## 验证服务
 
@@ -360,4 +354,25 @@ backend/
 
 ## 许可证
 
-[添加许可证信息]
+MIT License
+
+Copyright (c) 2026 ivorytower1026
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
