@@ -25,6 +25,15 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_DB: ${POSTGRES_DB}
 
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: qdrant
+    restart: always
+    ports:
+      - "6333:6333"
+    volumes:
+      - ${QDRANT_DATA_DIR}:/qdrant/storage
+
   sandbox-builder:
     build:
       context: ./docker/sandbox

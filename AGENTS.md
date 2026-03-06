@@ -160,17 +160,86 @@ backend/
 - Wait for server startup with `wait_for_server()` helper
 
 ### Environment Variables
-Required in `.env`:
-- `ZHIPUAI_API_KEY`: LLM API key
-- `ZHIPUAI_API_BASE`: LLM endpoint URL
+
+#### Quick Start
+Most configuration items have sensible defaults. You only need to configure a few essential items:
+
+**For Linux/Mac:**
+1. Copy `.env.example` to `.env`
+2. Configure required items:
+   - `ZHIPUAI_API_KEY`: Your ZhipuAI API key
+   - `DATABASE_URL`: PostgreSQL connection string
+   - `SECRET_KEY`: JWT signing key (use random string in production)
+3. If using Langfuse monitoring (`IS_LANGFUSE=1`), configure:
+   - `LANGFUSE_SECRET_KEY`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_BASE_URL`
+4. Run: `uv run python main.py`
+
+**For Windows:**
+1. Copy `.env.example.windows` to `.env`
+2. Configure required items (same as above)
+3. Run: `uv run python main.py`
+4. Directories will be auto-created in `C:\Users\<username>\.mutil-user-agent\`
+
+#### Configuration Categories
+
+**Required (must configure):**
+- `ZHIPUAI_API_KEY`: ZhipuAI API key
 - `DATABASE_URL`: PostgreSQL connection string
 - `SECRET_KEY`: JWT signing key
-- `IS_LANGFUSE`: Enable Langfuse monitoring (0/1)
-- `LANGFUSE_SECRET_KEY`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_BASE_URL`
-- `WORKSPACE_ROOT`, `SHARED_DIR`, `DOCKER_IMAGE`
-- `PORT`: Server port
-- `OPENAI_API_BASE_8001`, `OPENAI_API_BASE_8002`: VLLM endpoints
-- `MODELSCOPE_SDK_TOKEN`, `MODELSCOPE_URL`: ModelScope config
+- `LANGFUSE_*`: Required if `IS_LANGFUSE=1`
+
+**Optional with defaults:**
+- `ZHIPUAI_API_BASE`: Default `https://open.bigmodel.cn/api/coding/paas/v4`
+- `PORT`: Default `8009`
+- `ACCESS_TOKEN_EXPIRE_HOURS`: Default `24`
+- `LLM_MODE`: Default `1` (1=ZhipuAI, 2=Local VLLM)
+- `IS_LANGFUSE`: Default `1`
+- `MEMORY_ENABLED`: Default `1`
+- `WORKSPACE_ROOT`: Default `<home>/.mutil-user-agent/workspace` (platform-specific)
+- `SHARED_DIR`: Default `<home>/.mutil-user-agent/shared` (platform-specific)
+- `SKILL_DIR`: Default `<home>/.mutil-user-agent/skills` (platform-specific)
+- `SKILL_DISABLE_DIR`: Default `<home>/.mutil-user-agent/skills_disable` (platform-specific)
+- `SKILL_IMAGES_DIR`: Default `<home>/.mutil-user-agent/skill-images` (platform-specific)
+- `DOCKER_IMAGE`: Default `mutil-user-agent-sandbox:latest`
+- `DOCKER_CPU_LIMIT`: Default `1.0`
+- `DOCKER_MEMORY_LIMIT`: Default `2g`
+- `DOCKER_IDLE_TIMEOUT_SECONDS`: Default `300` (5 minutes)
+- `REDIS_URL`: Default `redis://localhost:6379/0`
+- `MEM0_QDRANT_HOST`: Default `localhost`
+- And more... see `.env.example` for full list
+
+#### Directory Auto-Creation
+The system automatically creates required directories on startup in a platform-specific location:
+
+**Windows:**
+- Base directory: `C:\Users\<username>\.mutil-user-agent\`
+- `workspace/`: User workspace root
+- `shared/`: Shared resources
+- `skills/`: Skills directory
+- `skills_disable/`: Disabled skills directory
+- `skill-images/`: Docker image storage
+
+**Linux/Mac:**
+- Base directory: `/home/<username>/.mutil-user-agent/` or `~/.mutil-user-agent/`
+- Same subdirectories as Windows
+
+**Notes:**
+- Directories are created on first run if they don't exist
+- You can override default paths in `.env` file
+- Windows paths can use forward slashes (`/`) or double backslashes (`\\`)
+
+#### Legacy Environment Variables (for reference)
+Previously required all items, now most have defaults:
+- `ZHIPUAI_API_KEY`: LLM API key (still required)
+- `ZHIPUAI_API_BASE`: LLM endpoint URL (now has default)
+- `DATABASE_URL`: PostgreSQL connection string (still required)
+- `SECRET_KEY`: JWT signing key (still required)
+- `IS_LANGFUSE`: Enable Langfuse monitoring (now defaults to 1)
+- `LANGFUSE_SECRET_KEY`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_BASE_URL` (required if enabled)
+- `WORKSPACE_ROOT`, `SHARED_DIR`, `DOCKER_IMAGE` (now have defaults)
+- `PORT`: Server port (now defaults to 8009)
+- `OPENAI_API_BASE_8001`, `OPENAI_API_BASE_8002`: VLLM endpoints (now have defaults)
+- `MODELSCOPE_SDK_TOKEN`, `MODELSCOPE_URL`: ModelScope config (now have defaults)
 
 ### Language and Comments
 - Code comments in English
