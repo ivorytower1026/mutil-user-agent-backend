@@ -35,6 +35,7 @@ services:
       - ${QDRANT_DATA_DIR}:/qdrant/storage
 
   sandbox-builder:
+    profiles: ["build-only"]
     build:
       context: ./docker/sandbox
       dockerfile: Dockerfile
