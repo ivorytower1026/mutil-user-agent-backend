@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime , UTC
 from typing import Any
 
 from src.database import SessionLocal, Thread
@@ -10,12 +11,24 @@ class SessionManager:
     def __init__(self, compiled_agent: Any):
         self.agent = compiled_agent
 
+    def _update_thread_activity(self, thread_id: str):
+        """Update thread last activity time."""
+        with SessionLocal() as db:
+            thread = db.query(Thread).filter(Thread.thread_id == thread_id).first()
+            if thread:
+                thread.last_active_at = datetime.now(UTC)
+                db.commit()
+
     def create(self, user_id: str) -> str:
         thread_id = f"{user_id}-{uuid.uuid4()}"
         get_thread_backend(thread_id)
 
         with SessionLocal() as db:
-            db.add(Thread(thread_id=thread_id, user_id=user_id))
+            db.add(Thread(
+                thread_id=thread_id,
+                user_id=user_id,
+                last_active_at=datetime.now(UTC)
+            ))
             db.commit()
 
         return thread_id

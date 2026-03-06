@@ -54,7 +54,14 @@ copy .env.docker.windows .env.docker
 docker-compose --env-file .env.docker up -d
 ```
 
-#### 4. 配置应用环境
+#### 4. 构建沙箱镜像
+
+```bash
+docker compose --env-file .env.docker --profile build-only build --no-cache sandbox-builder
+```
+
+#### 5. 配置应用环境
+
 ```bash
 # 复制配置文件
 copy .env.example.windows .env
@@ -64,9 +71,9 @@ copy .env.example.windows .env
 # SECRET_KEY=随机字符串（生产环境必须修改）
 ```
 
-#### 5. 启动应用
+#### 6. 启动应用
 ```bash
-uv run python main.py
+uv run .\main.py
 ```
 
 应用将在 `http://localhost:8005` 启动（端口可在 `.env` 中修改）。
@@ -101,7 +108,14 @@ cp .env.docker.linux .env.docker
 docker-compose --env-file .env.docker up -d
 ```
 
-#### 4. 配置应用环境
+#### 4. 构建沙箱镜像
+
+```bash
+docker compose --env-file .env.docker --profile build-only build --no-cache sandbox-builder
+```
+
+#### 5. 配置应用环境
+
 ```bash
 # 复制配置文件
 cp .env.example.linux .env
@@ -111,9 +125,9 @@ cp .env.example.linux .env
 # SECRET_KEY=随机字符串（生产环境必须修改）
 ```
 
-#### 5. 启动应用
+#### 6. 启动应用
 ```bash
-uv run python main.py
+uv run main.py
 ```
 
 应用将在 `http://localhost:8005` 启动（端口可在 `.env` 中修改）。
@@ -130,7 +144,7 @@ uv run python main.py
    ```
 3. 重新构建沙箱镜像：
    ```bash
-   docker-compose build --no-cache sandbox-builder
+   docker compose --env-file .env.docker --profile build-only build --no-cache sandbox-builder
    ```
 4. 重启容器：
    ```bash

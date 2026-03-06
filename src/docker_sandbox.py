@@ -203,16 +203,18 @@ class DockerSandboxBackend(BaseSandbox):
         Should be called when the session is no longer needed.
         Safe to call multiple times.
         """
-        if self._container is not None:
-            try:
-                self._container.remove(force=True)
-                print(
-                    f"[DockerSandbox] Destroyed container for thread {self.thread_id}"
-                )
-            except docker.errors.APIError as e:
-                print(f"[DockerSandbox] Warning: Failed to destroy container: {e}")
-            finally:
-                self._container = None
+        try:
+            container = self.client.containers.get(f"sandbox-{self.thread_id}")
+            container.remove(force=True)
+            print(
+                f"[DockerSandbox] Destroyed container for thread {self.thread_id}"
+            )
+        except docker.errors.NotFound:
+            pass
+        except docker.errors.APIError as e:
+            print(f"[DockerSandbox] Warning: Failed to destroy container: {e}")
+        finally:
+            self._container = None
 
         r = _get_redis()
         r.delete(f"sandbox:{self.thread_id}")
@@ -237,6 +239,7 @@ class DockerSandboxBackend(BaseSandbox):
 
         return self.client.containers.create(
             image=self.image,
+            name=f"sandbox-{self.thread_id}",
             command="sleep infinity",
             working_dir=settings.CONTAINER_WORKSPACE_DIR,
             volumes={

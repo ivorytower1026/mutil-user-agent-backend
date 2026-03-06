@@ -20,6 +20,9 @@ from api.agent_config import router as agent_config_router
 from src.database import create_tables
 from src.agent_skills.skill_validator import get_validation_orchestrator
 from src.docker_sandbox import DockerSandboxBackend
+from src.thread_cleanup import ThreadCleanupManager
+
+cleanup_manager: ThreadCleanupManager | None = None
 
 
 async def _cleanup_idle_containers_task():
@@ -36,6 +39,8 @@ async def _cleanup_idle_containers_task():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global cleanup_manager
+    
     create_tables()
     await agent_manager.init()
 
@@ -48,13 +53,21 @@ async def lifespan(app: FastAPI):
     if cleaned > 0:
         print(f"[Startup] Cleaned up {cleaned} stale upload sessions")
 
-    cleanup_task = asyncio.create_task(_cleanup_idle_containers_task())
+    cleanup_manager = ThreadCleanupManager(agent_manager.checkpointer)
+    sync_result = await cleanup_manager.sync_on_startup()
+    print(f"[Startup] Thread cleanup sync: restored={sync_result['restored']}, orphans_removed={sync_result['orphans_removed']}")
+
+    thread_cleanup_task = asyncio.create_task(cleanup_manager.run_cleanup_loop())
+    print("[Startup] Thread cleanup task started")
+
+    container_cleanup_task = asyncio.create_task(_cleanup_idle_containers_task())
     print("[Startup] Container cleanup task started")
 
     try:
         yield
     finally:
-        cleanup_task.cancel()
+        thread_cleanup_task.cancel()
+        container_cleanup_task.cancel()
         await agent_manager.close()
         print("[Shutdown] Agent manager closed")
 

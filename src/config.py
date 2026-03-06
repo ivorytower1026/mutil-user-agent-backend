@@ -80,6 +80,10 @@ class Settings(BaseSettings):
     DOCKER_IDLE_TIMEOUT_SECONDS: int = 300  # 5分钟无操作自动清理
     REDIS_URL: str = "redis://localhost:6379/0"
 
+    # Thread 生命周期配置
+    THREAD_IDLE_TIMEOUT_HOURS: int = 720  # 30天无活动则清理
+    THREAD_CLEANUP_INTERVAL_SECONDS: int = 300  # 每 5 分钟检查一次
+
     LLM_MODE: int = 1
 
     # Mem0 记忆系统配置
@@ -133,6 +137,14 @@ class Settings(BaseSettings):
 
     @field_validator("SKILL_IMAGE_VERSIONS_TO_KEEP", mode="before")
     def parse_skill_image_versions_to_keep(cls, v):
+        return int(v)
+
+    @field_validator("THREAD_IDLE_TIMEOUT_HOURS", mode="before")
+    def parse_thread_idle_timeout_hours(cls, v):
+        return int(v)
+
+    @field_validator("THREAD_CLEANUP_INTERVAL_SECONDS", mode="before")
+    def parse_thread_cleanup_interval_seconds(cls, v):
         return int(v)
 
 

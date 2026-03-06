@@ -44,6 +44,7 @@ class Thread(Base):
     user_id = Column(String(50), nullable=False, index=True)
     title = Column(String(20), nullable=True)
     created_at = Column(DateTime, server_default=func.now())
+    last_active_at = Column(DateTime, server_default=func.now())
 
 
 class Skill(Base):

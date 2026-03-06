@@ -349,6 +349,8 @@ class AgentManager:
         mode: str = "build",
     ) -> AsyncIterator[str]:
         """Stream chat using AgentStreamRunner"""
+        self.session_manager._update_thread_activity(thread_id)
+        
         queue: asyncio.Queue[str | None] = asyncio.Queue()
         pending = {"count": 2}
 
@@ -451,6 +453,8 @@ class AgentManager:
         mode: str = "build",
     ) -> AsyncIterator[str]:
         """Resume interrupted session using ResumeCommandBuilder and AgentStreamRunner"""
+        self.session_manager._update_thread_activity(thread_id)
+        
         try:
             interrupt_action = InterruptAction(action)
         except ValueError:
